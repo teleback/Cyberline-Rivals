@@ -10,7 +10,7 @@
 * **Gênero:** Corrida Arcade 2D (Pixel Art) / Multiplayer Competitivo.
 
 ### Resumo das Mecânicas Principais de Gameplay
-* **Pilotagem Arcade:** Controle de aceleração, frenagem e curvas precisas para manter o veículo na pista.
+* **Pilotagem Arcade:** Controle de aceleração, e freio 
 * **Sistema de Turbo/Boost:** Aumento temporário de velocidade ao passar por placas Boost espalhadas pelo circuito.
 * **Punição por Hazards (Obstáculos):** Perda de velocidade ao colidir com barreiras e perda de aderência/controle ao passar por Zonas de Óleo.
 * **Acúmulo de Recompensas ("Tijolinhos"):** Sistema de pontuação/moeda ganho por desempenho técnico (volta perfeita, liderança mantida, uso de boosts, vitória).
@@ -29,34 +29,33 @@
 * **Ferramentas:** gitHub e áudios gratuitos.
 
 ## INFLUÊNCIAS
-* **Influência #1:** Jogos: (Top Gear, Out Run, Super Mario Kart)
+* **Influência #1:** Jogos: (Barbie: Super Model, Fast like a fox, Neon Rider)
 * **Influência #2:** Mídia: Estética Cyberpunk / Ficção Científica
 
 ## Pitch de Elevador
-**Pitch:** "Um jogo de corrida arcade em pixel art com estética cyberpunk onde dois jogadores disputam rachas clandestinas em cidades iluminadas por neon, onde cada curva perfeita e cada boost contam para conquistar a glória no topo das pistas."
+**Pitch:** "Um jogo de corrida arcade em pixel art com estética cyberpunk onde dois jogadores disputam rachas clandestinas em cidades iluminadas por neon, e cada boost contam para conquistar a glória no topo das pistas."
 
 ## Descrição do Projeto (Resumida)
 O projeto é um jogo de corrida arcade 2D em pixel art ambientado em uma metrópole cyberpunk noturna. Focado em partidas rápidas e competitivas entre dois jogadores, o título combina a nostalgia dos grandes clássicos do gênero com uma estética futurista marcante, repleta de iluminação em neon, hologramas espalhados pelas vias urbanas.
 
-O objetivo principal é completar três voltas no circuito antes do adversário. A jogabilidade exige reflexos rápidos e precisão para dominar as curvas, aproveitar as placas de boost espalhadas pelo trajeto e desviar de perigos como barreiras e poças de óleo. Além da vitória, o jogo premia a pilotagem técnica através de um sistema de conquistas em tempo real.
+O objetivo principal é completar três voltas no circuito antes do adversário. A jogabilidade exige reflexos rápidos, aproveitar as placas de boost espalhadas pelo trajeto e desviar de perigos como barreiras e poças de óleo. Além da vitória, o jogo premia a pilotagem técnica através de um sistema de conquistas em tempo real.
 
 ## Descrição do Projeto (Detalhada)
 O jogo transporta os jogadores para o submundo das corridas clandestinas de uma cidade futurista dominada por um sistema cibernético. Neste cenário, as ruas iluminadas por neon se transformam em pistas perigosas onde pilotos disputam fama, respeito e recursos. A estética em pixel art resgata o charme dos jogos retrô, enriquecida por uma atmosfera vibrante com hologramas e arquitetura cyberpunk.
 
-A experiência central é projetada para disputas diretas entre dois jogadores em uma mesma pista. O diferencial do confronto é o sistema de multiplayer em modo "fantasma": os dois carros compartilham o mesmo traçado simultaneamente, mas não colidem um com o outro. Isso elimina batidas acidentais ou trapaças por empurrões, fazendo com que o resultado dependa exclusivamente da maestria do jogador no controle do veículo.
+A experiência central é projetada para disputas diretas entre dois jogadores em uma mesma pista. O diferencial do confronto é o sistema de multiplayer os dois carros se colidem gerando impacto e diminuição de velocidade 
 
 O loop de gameplay gira em torno de completar três voltas na pista no menor tempo possível. A dinâmica das corridas é diretamente influenciada por elementos interativos no chão do circuito. Os pilotos precisam buscar as Placas Boost para ganhar aceleração temporária em trechos chave, enquanto desviam de Zonas de Óleo que fazem o carro derrapar e de Barreiras que reduzem drasticamente a velocidade ao haver colisão.
 
 Para aumentar a vontade de jogar várias vezes e o engajamento, o projeto conta com o sistema de recompensas por desempenho ("Tijolinhos"). Durante a corrida, os jogadores ganham pontos/moedas por ações de alta precisão, como realizar voltas perfeitas sem bater, liderar a corrida inteira ou passar longe do óleo. Essa mecânica transforma cada racha em um desafio constante de superação técnica.
 
 ## O que faz este projeto se destacar?
-* **Multiplayer Sem Colisão (Modo Fantasma):** Os dois jogadores correm no mesmo traçado sem se chocar. Isso elimina batidas acidentais e garante que o vencedor seja definido 100% pela habilidade e precisão de pilotagem.
 * **Sistema de Recompensas por Precisão ("Tijolinhos"):** A corrida não premia apenas o primeiro a cruzar a linha de chegada, mas também recompensa o piloto por ações técnicas (voltas sem bater, desvio de óleo, uso de boosts).
 * **Pistas Dinâmicas Interativas:** O traçado é repleto de elementos que alteram a velocidade e a aderência instantaneamente (placas boost, barreiras e poças de óleo), exigindo constante adaptação.
 * **Nostalgia Arcade Cyberpunk:** Mistura a jogabilidade simples e viciante dos clássicos em pixel art 2D com uma atmosfera futurista envolvente de iluminação neon.
 
 ## Mecânicas Principais de Gameplay (Detalhado)
-* **Botões de Direção (Esquerda e Direita):** Localizados no canto inferior esquerdo da tela (no HUD mobile). São responsáveis por alterar o vetor de direção do veículo. A resposta ao toque é imediata, alterando o ângulo do carro gradativamente para criar curvas suaves ou desvios bruscos, dependendo do tempo em que o botão é pressionado.
+* **Botões de Direção (Direita/Esquerda):** Localizados no canto inferior esquerdo da tela (no HUD mobile). São responsáveis por alterar o vetor de direção do veículo. A resposta ao toque é imediata, alterando o ângulo do carro gradativamente para criar desvios bruscos, dependendo do tempo em que o botão é pressionado.
 * **Aceleração Contínua (Gás):** O botão de acelerar (canto inferior direito) aumenta a velocidade do veículo de acordo com uma curva de aceleração própria de cada carro, até atingir a velocidade máxima (Top Speed).
 * **Freio / Derrapagem (Brake / Drift):** Pressionar o freio reduz rapidamente a velocidade. Se acionado simultaneamente a um Botão de Direção (Esquerda ou Direita) enquanto o carro estiver em alta velocidade, o veículo entra em estado de derrapagem (Drift), permitindo fazer curvas fechadas sem perder toda a inércia, mas exigindo compensação no volante para não rodar na pista.
 
@@ -67,7 +66,7 @@ Para aumentar a vontade de jogar várias vezes e o engajamento, o projeto conta 
 
 ### 8.3. Interações Dinâmicas com a Pista
 O domínio da pista depende de como o jogador reage aos artefatos espalhados pelo circuito.
-* **Sistema de Placas Boost:** Ao passar com os pneus sobre a placa neon, o veículo recebe um multiplicador instantâneo de velocidade (ex: 130% da velocidade máxima) por 2.5 segundos. Durante o Boost, a capacidade de fazer curvas fechadas (Handling) diminui ligeiramente, exigindo antecipação do jogador através dos botões de Esquerda/Direita.
+* **Sistema de Placas Boost:** Ao passar com os pneus sobre a placa neon, o veículo recebe um multiplicador instantâneo de velocidade (ex: 130% da velocidade máxima) por 2.5 segundos. 
 * **Sistema de Zonas de Óleo:** Funciona como um modificador negativo de fricção. Ao tocar no óleo, a aderência cai para 20%. Se o jogador estiver pressionando os botões direcionais (Esquerda/Direita) nesse momento, o carro deslizará incontrolavelmente para a lateral, podendo bater nas barreiras. A estratégia é soltar os direcionais e passar reto sobre o óleo.
 * **Penalidade de Barreiras:** Bater nos limites da pista ou em obstáculos físicos reduz a velocidade atual em 60% instantaneamente e bloqueia o uso de Boosts por 1 segundo, simulando a recuperação do motor.
 
@@ -80,7 +79,7 @@ Ano de 2099. Neon City é uma megalópole vertical onde a elite corporativa vive
 Os circuitos acontecem em vias expressas desativadas. Apenas a busca pela vitória. Vencer significa conquistar Tijolinhos (a moeda digital descentralizada das ruas), garantir o respeito das gangues locais e provar que nenhum algoritmo corporativo pode superar o reflexo e a ousadia de um verdadeiro piloto.
 
 ### Jogabilidade (Resumida)
-Corrida arcade 2D estilo 1 contra 1 com 3 voltas. O jogador usa botões de direção (Esquerda/Direita), acelerador e freio para desviar de óleo, acertar placas de aceleração (boost) e evitar barreiras para cruzar a linha de chegada em primeiro lugar.
+Corrida arcade 2D estilo 1 contra 1 com 3 voltas. O jogador usa botões de direção (Esquerda/Direita), cima e baixo para desviar de óleo, acertar placas de aceleração (boost) e evitar barreiras para cruzar a linha de chegada em primeiro lugar.
 
 ### Jogabilidade (Detalhada)
 O jogador compete contra um rival em tempo real ao longo de 3 voltas dinâmicas num circuito cyberpunk. O objetivo primário é vencer a corrida, enquanto o objetivo secundário é executar manobras limpas para maximizar o ganho de Tijolinhos.
@@ -124,7 +123,7 @@ Não é aplicável. O jogo é focado no estilo clássico arcade em 2D/Pixel Art.
 
 ### Animação
 * **Carros:** Animação das rodas girando, chama neon saindo do escapamento ao ativar a aceleração e animação de inclinação ao virar (Esquerda/Direita).
-* **Cenário:** Animações sutis em outdoors neon, hologramas piscando e chuva caindo no fundo.
+* **Cenário:** Animações sutis em outdoors neon, hologramas piscando.
 * **Pista:** Animação de pulso luminoso nas Placas de Aceleração.
 * **Interface:** Animação de transição de telas, efeito de brilho nos botões e números subindo no contador de tijolinhos.
 
@@ -142,7 +141,7 @@ Não é aplicável. O jogo é focado no estilo clássico arcade em 2D/Pixel Art.
 
 ### Objetivo 3 - Multiplayer e Sistema de Recompensas
 * **Escala de Tempo (Time Scale):** Semanas 7 a 9 (Mês 2)
-* Integração do sistema de rede para conectar dois jogadores na mesma corrida no formato "Modo Fantasma".
+* Integração do sistema de rede para conectar dois jogadores na mesma corrida podendo se colidir 
 * Programação do sistema de monitoramento de desempenho e cálculo de recompensas de "Tijolinhos" ao final da partida.
 
 ### Objetivo 4 - Arte Final, Som e Polimento (Lançamento)
