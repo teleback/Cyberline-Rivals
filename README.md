@@ -8,9 +8,13 @@ Em uma metrópole futurista dominada por grandes corporações, tecnologia de po
 
 ## Referências
 O jogo é inspirado em clássicos de corrida arcade, como:
+
 Barbie:Super Model
+
 Fast like a fox
+
 Neon Rider 
+
 Trazendo uma jogabilidade simples e divertida. A estética é baseada no gênero Cyberpunk, com cidades iluminadas por neon, carros futuristas e atmosfera noturna, além de gráficos em pixel art.
 
 ## Objetivos
