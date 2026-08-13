@@ -8,17 +8,16 @@ Em uma metrópole futurista dominada por grandes corporações, tecnologia de po
 
 ## Referências
 O jogo é inspirado em clássicos de corrida arcade, como:
-- Top Gear![alt text](image.png)
-- OutRun![alt text](image-1.png)
-- Super Mario kart ![alt text](image-2.png)
-
+Barbie:Super Model
+Fast like a fox
+Neon Rider 
 Trazendo uma jogabilidade simples e divertida. A estética é baseada no gênero Cyberpunk, com cidades iluminadas por neon, carros futuristas e atmosfera noturna, além de gráficos em pixel art.
 
 ## Objetivos
 - Proporcionar partidas rápidas e divertidas entre dois jogadores.
 - Completar 3 voltas antes do adversário.
 - Vencer seus amigos no modo multiplayer.
-- Realizar uma corrida perfeita, sem sair da pista ou bater em obstáculos.
+- Realizar uma corrida perfeita, sem bater em obstáculos.
 
 ## Personagens
 O jogo não possui personagens jogáveis tradicionais, mas sim pilotos representados por carros futuristas. Cada carro possui uma aparência única inspirada no universo cyberpunk, permitindo que os jogadores escolham seu veículo favorito.
@@ -30,7 +29,7 @@ O jogo não possui personagens jogáveis tradicionais, mas sim pilotos represent
 *  Cenários compostos por prédios, hologramas e placas luminosas.
 *  **Placas Boost** que aumentam temporariamente a velocidade do veículo.
 *  **Barreiras** que penalizam colisões, reduzindo a velocidade do carro.
-*  **Zonas de Óleo** que diminuem a aderência e dificultam o controle nas curvas.
+*  **Zonas de Óleo** que diminuem a aderência e dificultam.
 * **Interface (HUD) com:**
 
   * Velocidade do veículo.
