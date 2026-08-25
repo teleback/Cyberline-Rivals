@@ -19,11 +19,11 @@ class Preloader extends Phaser.Scene {
 
         // Tilesets usados no mapa "pista.json" (chaves iguais aos nomes dos
         // tilesets dentro do JSON exportado do Tiled, pra bater com addTilesetImage)
-        this.load.image('Grass_Tile', 'assets/images/tiles/Grass_Tile.png');
-        this.load.image('Road_01_Tile_05', 'assets/images/tiles/Road_01_Tile_05.png');
-        this.load.image('Start', 'assets/images/tiles/Start.png');
         this.load.image('Road_01_Tile_04', 'assets/images/tiles/Road_01_Tile_04.png');
+        this.load.image('Soil_Tile', 'assets/images/tiles/Soil_Tile.png');
+        this.load.image('Road_01_Tile_01', 'assets/images/tiles/Road_01_Tile_01.png');
         this.load.image('Road_01_Tile_02', 'assets/images/tiles/Road_01_Tile_02.png');
+        this.load.image('Start', 'assets/images/tiles/Start.png');
 
         // Carro do jogador
         this.load.image('carro1', 'assets/images/tiles/carro1.png');

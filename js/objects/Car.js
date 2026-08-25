@@ -12,16 +12,21 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // Modo "damping" simula atrito: o carro perde velocidade aos poucos
         // em vez de parar instantaneamente ao soltar a seta.
         this.setDamping(true);
-        this.setDrag(0.985);
-        this.setMaxVelocity(260);
+        this.setDrag(0.89);
+        this.setMaxVelocity(220);
 
-        this.acceleration = 300;
-        this.turnSpeed = 200; // graus por segundo
+        this.acceleration = 320;
+        this.turnSpeed = 190; // graus por segundo
+
+        // Aderência dos pneus: fração da velocidade LATERAL (de lado) que
+        // sobra depois de 1 segundo. Quanto menor, mais o carro "gruda" na
+        // direção em que está apontando em vez de escorregar tipo no gelo.
+        this.grip = 0.08;
 
         this.cursors = scene.input.keyboard.createCursorKeys();
     }
 
-    update() {
+    update(time, delta) {
         const { left, right, up, down } = this.cursors;
 
         if (left.isDown) {
@@ -49,5 +54,24 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         } else {
             this.body.acceleration.set(0);
         }
+
+        this.applyGrip(delta);
+    }
+
+    // Separa a velocidade atual em componente "pra frente" (na direção que
+    // o carro está apontando) e "lateral", e derruba a lateral rapidamente.
+    // Isso é o que dá a sensação de pneu grudando no chão em vez de deslizar.
+    applyGrip(delta) {
+        const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
+        const velocity = this.body.velocity;
+
+        const forwardSpeed = velocity.dot(forward);
+        const forwardVelocity = forward.clone().scale(forwardSpeed);
+        const lateralVelocity = velocity.clone().subtract(forwardVelocity);
+
+        const seconds = delta / 1000;
+        lateralVelocity.scale(Math.pow(this.grip, seconds));
+
+        velocity.set(forwardVelocity.x + lateralVelocity.x, forwardVelocity.y + lateralVelocity.y);
     }
 }
