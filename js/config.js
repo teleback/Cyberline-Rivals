@@ -10,8 +10,8 @@ var config = {
     physics: {
         default: 'arcade',
         arcade: {
-            gravity: { X: 0, y: 0 },
-            debug: true,
+            gravity: { x: 0, y: 0 },
+            debug: false,
         },
     },
     pointers: {
@@ -21,6 +21,6 @@ var config = {
         mode: Phaser.Scale.FIT,
         autoCenter: Phaser.Scale.CENTER_BOTH
     },
-}; 
+};
 
 export default config;
