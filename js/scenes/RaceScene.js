@@ -1,4 +1,41 @@
 import Car from '../objects/Car.js';
+import BotCar from '../objects/BotCar.js';
+
+// Procura, em espiral a partir de (worldX, worldY), o tile mais próximo
+// que exista na camada "Pista" e devolve o centro dele em coordenadas de
+// mundo. Usado pra garantir que o bot nasça EM CIMA da pista mesmo
+// quando o ponto "ideal" de nascimento (ex.: centro do mapa) cai fora
+// dela. `maxRadius` é em tiles.
+function findNearestTrackTileCenter(pistaLayer, worldX, worldY, tileWidth, tileHeight, maxRadius = 40) {
+    if (!pistaLayer) {
+        return null;
+    }
+
+    const startTileX = pistaLayer.worldToTileX(worldX);
+    const startTileY = pistaLayer.worldToTileY(worldY);
+
+    for (let radius = 0; radius <= maxRadius; radius += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+            for (let dy = -radius; dy <= radius; dy += 1) {
+                // Só percorre o "anel" deste raio (não repete os de raios
+                // menores, já checados numa volta anterior).
+                if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) {
+                    continue;
+                }
+
+                const tile = pistaLayer.getTileAt(startTileX + dx, startTileY + dy);
+                if (tile) {
+                    return {
+                        x: pistaLayer.tileToWorldX(startTileX + dx) + tileWidth / 2,
+                        y: pistaLayer.tileToWorldY(startTileY + dy) + tileHeight / 2,
+                    };
+                }
+            }
+        }
+    }
+
+    return null;
+}
 
 class Race extends Phaser.Scene {
     constructor() {
@@ -76,6 +113,36 @@ class Race extends Phaser.Scene {
         // Spawn do carro1 no centro da área real da pista
         this.car = new Car(this, bounds.centerX, bounds.centerY, 'carro1');
 
+        // Camada de tile "Pista": passada pro bot pra ele saber onde pode andar.
+        // Busca pelo índice em map.layers (mais seguro que ler layer.layer.name).
+        const pistaIndex = map.layers.findIndex((layerData) => layerData.name === 'Pista');
+        const pistaLayer = pistaIndex >= 0 ? layers[pistaIndex] : null;
+
+        // O ponto (bounds.centerX, bounds.centerY) é o centro do
+        // RETÂNGULO que envolve todas as camadas — não necessariamente um
+        // ponto sobre o asfalto (numa pista em formato de anel/curva, o
+        // centro do retângulo cai fora da pista, na "ilha" do meio). Isso
+        // fazia o bot nascer fora da camada "Pista" e, com a proteção
+        // contra grama, ficar parado se recuperando pro próprio ponto de
+        // partida pra sempre. Por isso procuramos o tile de "Pista" mais
+        // próximo desse centro (em espiral) e nascemos ali, garantido.
+        const spawnPoint = findNearestTrackTileCenter(
+            pistaLayer,
+            bounds.centerX + 40,
+            bounds.centerY,
+            map.tileWidth,
+            map.tileHeight
+        ) || { x: bounds.centerX + 40, y: bounds.centerY };
+
+        // Bot de demonstração: nasce perto do carro do jogador, sobre a
+        // pista, usando o asset "carro" (diferente do "carro1" do
+        // jogador) pra ficar visualmente distinto sem precisar de tint.
+        this.bot = new BotCar(this, spawnPoint.x, spawnPoint.y, 'carro', pistaLayer);
+        // Garante que o bot sempre desenha por cima das camadas de tile,
+        // igual ao carro do jogador.
+        this.bot.setDepth(1);
+        this.car.setDepth(1);
+
         // Camada de objetos "colisao": cada retângulo desenhado no Tiled
         // vira uma parede física invisível que o carro não consegue atravessar.
         this.walls = this.physics.add.staticGroup();
@@ -96,12 +163,15 @@ class Race extends Phaser.Scene {
         }
 
         this.physics.add.collider(this.car, this.walls);
+        this.physics.add.collider(this.bot, this.walls);
+        this.physics.add.collider(this.car, this.bot);
 
         this.cameras.main.startFollow(this.car, true, 0.08, 0.08);
     }
 
     update(time, delta) {
         this.car.update(time, delta);
+        this.bot.update(time, delta);
     }
 }
 

@@ -46,6 +46,14 @@ class Preloader extends Phaser.Scene {
         // Carro do jogador
         this.load.image('carro1', 'assets/images/tiles/carro1.png' + cacheBust);
 
+        // Carro do bot (asset diferente do jogador, só pra diferenciar
+        // visualmente): "carro.png" é uma faixa com 7 quadros de 64x128,
+        // carregamos como spritesheet e usamos só o quadro 0.
+        this.load.spritesheet('carro', 'assets/images/tiles/carro.png' + cacheBust, {
+            frameWidth: 64,
+            frameHeight: 128,
+        });
+
         // Mapa exportado do Tiled
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json' + cacheBust);
     }
