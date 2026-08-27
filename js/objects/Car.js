@@ -6,8 +6,22 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         scene.physics.add.existing(this);
 
         this.setOrigin(0.5, 0.5);
-        this.setCollideWorldBounds(true);
+        // As paredes da pista vêm da camada "colisao" do Tiled (ver
+        // RaceScene), então não usamos o retângulo genérico dos limites do
+        // mundo pra colisão do carro.
+        this.setCollideWorldBounds(false);
         this.setBounce(0.2);
+
+        // Por padrão o corpo de física usa o frame INTEIRO da imagem
+        // (64x64), mas o desenho do carro em si só ocupa ~26x47 no centro
+        // do frame — o resto é fundo transparente. Sem ajustar isso, o
+        // carro colide com a parede da camada "colisao" bem antes de
+        // encostar nela visualmente. Usamos um círculo (em vez de um
+        // retângulo) porque o Arcade Physics não rotaciona o corpo de
+        // colisão junto com o sprite: um retângulo fixo desalinharia da
+        // silhueta real do carro conforme ele vira; um círculo tem a mesma
+        // forma em qualquer ângulo.
+        this.body.setCircle(14, 18, 20);
 
         // Modo "damping" simula atrito: o carro perde velocidade aos poucos
         // em vez de parar instantaneamente ao soltar a seta.
