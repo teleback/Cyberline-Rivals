@@ -41,6 +41,24 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // em alta velocidade, vira na força total). Evita giro "de pião" parado.
         this.minTurnFactor = 0.35;
 
+        // --- Freio / Ré ---
+        // Se o carro está andando pra frente e aperta pra baixo, freia (força
+        // de frenagem forte, maior que a aceleração normal). Só quando quase
+        // parado é que "baixo" passa a empurrar o carro de ré.
+        this.brakeDeceleration = 900;
+        this.reverseAcceleration = 260;
+        this.reverseMaxSpeed = 140;
+        this.stoppedThreshold = 12; // abaixo disso já considera "parado" pra engatar ré
+
+        // --- Drift ---
+        // Frear + virar em alta velocidade solta um pouco o pneu de trás:
+        // menos aderência (desliza mais de lado) mas vira mais fechado.
+        this.normalGrip = this.grip;
+        this.driftGrip = 0.35;
+        this.driftMinSpeedFactor = 0.45; // % da vel. máx. atual pra poder driftar
+        this.driftTurnBoost = 1.35;
+        this.isDrifting = false;
+
         // --- Turbo ---
         // Tanque de turbo de 0 a 100. Segurando SHIFT, o carro acelera mais
         // e ganha mais velocidade máxima, mas consome o tanque. Sem apertar,
@@ -81,10 +99,20 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const maxVel = turboOn ? this.baseMaxVelocity * this.turboMaxVelMultiplier : this.baseMaxVelocity;
         this.setMaxVelocity(maxVel);
 
+        // Velocidade "pra frente" (positiva = indo pra frente, negativa = de ré),
+        // usada tanto pro freio/ré quanto pro drift.
+        const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
+        const forwardSpeed = this.body.velocity.dot(forward);
+
+        this.isDrifting = down.isDown
+            && (left.isDown || right.isDown)
+            && forwardSpeed > this.body.maxVelocity.x * this.driftMinSpeedFactor;
+
         const speedFactor = Phaser.Math.Clamp(
             this.body.speed / this.body.maxVelocity.x, 0, 1
         );
-        const turnFactor = this.minTurnFactor + (1 - this.minTurnFactor) * speedFactor;
+        let turnFactor = this.minTurnFactor + (1 - this.minTurnFactor) * speedFactor;
+        if (this.isDrifting) turnFactor *= this.driftTurnBoost;
 
         if (left.isDown) {
             this.setAngularVelocity(-this.turnSpeed * turnFactor);
@@ -103,14 +131,32 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
                 this.body.acceleration
             );
         } else if (down.isDown) {
-            this.scene.physics.velocityFromRotation(
-                this.rotation - Math.PI / 2,
-                -this.baseAcceleration / 1.6,
-                this.body.acceleration
-            );
+            if (forwardSpeed > this.stoppedThreshold) {
+                // Ainda andando pra frente: freia (desacelera forte), não
+                // engata ré ainda.
+                this.scene.physics.velocityFromRotation(
+                    this.rotation - Math.PI / 2,
+                    -this.brakeDeceleration,
+                    this.body.acceleration
+                );
+            } else if (forwardSpeed > -this.reverseMaxSpeed) {
+                // Já parou (ou está de ré abaixo do limite): acelera de ré.
+                this.scene.physics.velocityFromRotation(
+                    this.rotation - Math.PI / 2,
+                    -this.reverseAcceleration,
+                    this.body.acceleration
+                );
+            } else {
+                this.body.acceleration.set(0);
+            }
         } else {
             this.body.acceleration.set(0);
         }
+
+        // Pneu solta durante o drift (mais deslize lateral); volta ao normal
+        // assim que solta o freio ou os direcionais.
+        this.grip = this.isDrifting ? this.driftGrip : this.normalGrip;
+        this.setTint(this.isDrifting ? 0xff5fa8 : 0xffffff);
 
         this.applyGrip(delta);
     }
