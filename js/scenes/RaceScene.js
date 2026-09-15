@@ -64,11 +64,32 @@ class Race extends Phaser.Scene {
             });
         }
         this.physics.add.collider(this.car, this.walls);
+        this.cameras.main.setZoom(0.65);
         this.cameras.main.startFollow(this.car, true, 0.08, 0.08);
+
+        // --- Barra de turbo (HUD fixo, não rola com a câmera) ---
+        this.turboBarBg = this.add.rectangle(20, 8, 154, 18, 0x111319)
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setStrokeStyle(2, 0xffffff)
+            .setDepth(2000);
+        this.turboBarFill = this.add.rectangle(23, 11, 148, 12, 0x00e5ff)
+            .setOrigin(0, 0)
+            .setScrollFactor(0)
+            .setDepth(2001);
+        this.turboLabel = this.add.text(20, 28, 'TURBO (SHIFT)', {
+            fontFamily: 'monospace', fontSize: '12px', color: '#ffffff'
+        }).setScrollFactor(0).setDepth(2000);
     }
 
     update(time, delta) {
         if (this.car) this.car.update(time, delta);
+
+        if (this.turboBarFill && this.car) {
+            const pct = Phaser.Math.Clamp(this.car.turboFuel / this.car.turboMax, 0, 1);
+            this.turboBarFill.width = 148 * pct;
+            this.turboBarFill.fillColor = this.car.isTurboActive ? 0xff2d55 : 0x00e5ff;
+        }
     }
 }
 export default Race;
