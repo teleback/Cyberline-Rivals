@@ -59,50 +59,69 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.driftTurnBoost = 1.35;
         this.isDrifting = false;
 
-        // --- Turbo ---
-        // Tanque de turbo de 0 a 100. Segurando SHIFT, o carro acelera mais
-        // e ganha mais velocidade máxima, mas consome o tanque. Sem apertar,
-        // o tanque recarrega sozinho aos poucos.
+        // ------------------------------------------------------------------
+        // TURBO
+        // ------------------------------------------------------------------
+        // A ideia por trás do turbo agora não é só "mais rápido enquanto
+        // segura SHIFT". Ele tem uma CURVA, e é essa curva que os efeitos
+        // visuais leem. Três valores diferentes, cada um com um trabalho:
+        //
+        //   turboFuel      -> o recurso (0..100), o que o HUD mostra.
+        //   turboSpool     -> o quanto a turbina já "encheu" (0..1). Sobe em
+        //                     ~0.9s de uso contínuo. É o que multiplica a
+        //                     física, então o empurrão CRESCE enquanto você
+        //                     segura, em vez de ligar/desligar num degrau.
+        //   turboIntensity -> a mesma coisa, mas suavizada pros efeitos
+        //                     (0..1). Sobe rápido e cai devagar, pra imagem
+        //                     "escorrer" de volta ao normal no lugar de dar
+        //                     um corte seco quando solta o SHIFT.
+        //
+        // E tem punição: se esvaziar o tanque até o fim, o motor SUPERAQUECE,
+        // trava o turbo por um tempo e recarrega mais devagar. Isso é o que
+        // transforma o turbo numa decisão ("uso agora ou guardo?") em vez de
+        // um botão que se segura o tempo todo.
         this.turboFuel = 100;
         this.turboMax = 100;
-        this.turboDrainPerSec = 40;   // esvazia em 2.5s de uso contínuo
-        this.turboRechargePerSec = 12; // recarrega em ~8.3s parado de turbo
-        this.turboMinToActivate = 15; // precisa de um mínimo pra começar a usar
-        this.turboAccelMultiplier = 1.8;
-        this.turboMaxVelMultiplier = 1.4;
+        this.turboDrainPerSec = 34;
+        this.turboRechargePerSec = 15;
+        this.turboRechargeDelay = 550;   // ms de espera antes de voltar a encher
+        this.turboMinToActivate = 18;    // precisa de um mínimo pra começar a usar
+        this.turboAccelMultiplier = 2.0;
+        this.turboMaxVelMultiplier = 1.45;
+        this.turboSpoolPerSec = 1.1;     // ~0.9s pra atingir o empurrão total
+        this.turboKick = 120;            // "soco" instantâneo ao acionar
+        this.overheatDuration = 1800;    // ms travado depois de estourar o tanque
+
         this.baseAcceleration = this.acceleration;
         this.baseMaxVelocity = 340;
+
         this.isTurboActive = false;
+        this.turboSpool = 0;
+        this.turboIntensity = 0;
+        this.isOverheated = false;
+        this._overheatUntil = 0;
+        this._rechargeAfter = 0;
 
         this.keyShift = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
         this.cursors = scene.input.keyboard.createCursorKeys();
     }
 
+    /** Velocidade em "km/h" só pra leitura no HUD. */
+    get speedKmh() {
+        return Math.round(this.body.speed * 0.42);
+    }
+
     update(time, delta) {
         const { left, right, up, down } = this.cursors;
         const seconds = delta / 1000;
 
-        // Ativa turbo só se estiver acelerando pra frente, com combustível
-        // suficiente, e soltando o turbo automaticamente ao esvaziar.
-        const wantsTurbo = this.keyShift.isDown && up.isDown;
-        this.isTurboActive = wantsTurbo && this.turboFuel > 0;
-
-        if (this.isTurboActive) {
-            this.turboFuel = Math.max(0, this.turboFuel - this.turboDrainPerSec * seconds);
-        } else if (this.turboFuel < this.turboMax) {
-            this.turboFuel = Math.min(this.turboMax, this.turboFuel + this.turboRechargePerSec * seconds);
-        }
-
-        const turboOn = this.isTurboActive && this.turboFuel > 0;
-        this.acceleration = turboOn ? this.baseAcceleration * this.turboAccelMultiplier : this.baseAcceleration;
-        const maxVel = turboOn ? this.baseMaxVelocity * this.turboMaxVelMultiplier : this.baseMaxVelocity;
-        this.setMaxVelocity(maxVel);
-
-        // Velocidade "pra frente" (positiva = indo pra frente, negativa = de ré),
-        // usada tanto pro freio/ré quanto pro drift.
+        // Vetor apontando pra onde o nariz do carro está virado. Serve pro
+        // freio/ré, pro drift e pro empurrão do turbo.
         const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
         const forwardSpeed = this.body.velocity.dot(forward);
+
+        this.updateTurbo(time, seconds, up.isDown, forward);
 
         this.isDrifting = down.isDown
             && (left.isDown || right.isDown)
@@ -113,6 +132,10 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         );
         let turnFactor = this.minTurnFactor + (1 - this.minTurnFactor) * speedFactor;
         if (this.isDrifting) turnFactor *= this.driftTurnBoost;
+        // Em turbo o carro fica mais "duro" de virar: em alta velocidade você
+        // não joga o volante à vontade, e isso faz o turbo PARECER rápido
+        // (tem custo) em vez de só andar mais.
+        turnFactor *= 1 - 0.28 * this.turboSpool;
 
         if (left.isDown) {
             this.setAngularVelocity(-this.turnSpeed * turnFactor);
@@ -154,11 +177,72 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         }
 
         // Pneu solta durante o drift (mais deslize lateral); volta ao normal
-        // assim que solta o freio ou os direcionais.
+        // assim que solta o freio ou os direcionais. No turbo o pneu também
+        // solta um tiquinho — carro "leve" na frente.
         this.grip = this.isDrifting ? this.driftGrip : this.normalGrip;
-        this.setTint(this.isDrifting ? 0xff5fa8 : 0xffffff);
+        if (this.isTurboActive) this.grip = Math.max(this.grip, 0.12 * this.turboSpool);
 
         this.applyGrip(delta);
+    }
+
+    updateTurbo(time, seconds, throttleDown, forward) {
+        // Saiu do superaquecimento?
+        if (this.isOverheated && time >= this._overheatUntil) {
+            this.isOverheated = false;
+            this.emit('turbo-cooled');
+        }
+
+        // Pra LIGAR exige um mínimo no tanque; pra MANTER ligado basta ter
+        // qualquer coisa. Sem isso o turbo ficaria piscando ligado/desligado
+        // exatamente no limiar, e todo o efeito visual piscaria junto.
+        const wantsTurbo = this.keyShift.isDown && throttleDown && !this.isOverheated;
+        const canStart = this.turboFuel >= this.turboMinToActivate;
+        const shouldBeActive = wantsTurbo && (this.isTurboActive ? this.turboFuel > 0 : canStart);
+
+        if (shouldBeActive && !this.isTurboActive) {
+            // Acionou agora: dá um soco de velocidade na hora. É esse
+            // impulso instantâneo que o jogador SENTE; a rampa vem depois.
+            this.body.velocity.add(forward.clone().scale(this.turboKick));
+            this.emit('turbo-start');
+        } else if (!shouldBeActive && this.isTurboActive) {
+            if (this.turboFuel <= 0) {
+                this.isOverheated = true;
+                this._overheatUntil = time + this.overheatDuration;
+                this.emit('turbo-overheat');
+            } else {
+                this.emit('turbo-stop');
+            }
+        }
+
+        this.isTurboActive = shouldBeActive;
+
+        if (this.isTurboActive) {
+            this.turboFuel = Math.max(0, this.turboFuel - this.turboDrainPerSec * seconds);
+            this.turboSpool = Math.min(1, this.turboSpool + this.turboSpoolPerSec * seconds);
+            this._rechargeAfter = time + this.turboRechargeDelay;
+        } else {
+            // Desce a turbina rápido, mas não instantaneamente.
+            this.turboSpool = Math.max(0, this.turboSpool - this.turboSpoolPerSec * 1.8 * seconds);
+            if (time >= this._rechargeAfter && this.turboFuel < this.turboMax) {
+                // Recarrega pela metade enquanto o motor está fervendo.
+                const rate = this.isOverheated ? this.turboRechargePerSec * 0.5 : this.turboRechargePerSec;
+                this.turboFuel = Math.min(this.turboMax, this.turboFuel + rate * seconds);
+            }
+        }
+
+        // Intensidade suavizada: é ela (e só ela) que os efeitos consomem.
+        // Sobe rápido pra o impacto ser imediato, desce devagar pra sobrar
+        // um "rastro" de adrenalina depois que solta.
+        const target = this.isTurboActive ? this.turboSpool : 0;
+        const rate = target > this.turboIntensity ? 7.0 : 2.6;
+        this.turboIntensity += (target - this.turboIntensity) * Math.min(1, rate * seconds);
+        if (this.turboIntensity < 0.001) this.turboIntensity = 0;
+
+        this.acceleration = this.baseAcceleration
+            * (1 + (this.turboAccelMultiplier - 1) * this.turboSpool);
+        this.setMaxVelocity(
+            this.baseMaxVelocity * (1 + (this.turboMaxVelMultiplier - 1) * this.turboSpool)
+        );
     }
 
     // Separa a velocidade atual em componente "pra frente" (na direção que

@@ -1,0 +1,37 @@
+/*
+ * O turbo não para na borda do canvas.
+ *
+ * TurboFX escreve a intensidade (0..1) na variável CSS `--turbo` do
+ * #game-container a cada frame. Daqui pra baixo é só CSS: a moldura do jogo
+ * acende junto com a turbina, então o efeito "vaza" pra página e a tela
+ * inteira parece parte do carro.
+ *
+ * O brilho vai no <canvas>, não no container: o container é um <div> de
+ * largura total, e uma sombra nele viraria uma faixa atravessando a página.
+ * O canvas tem exatamente o tamanho do jogo. A variável é herdada do pai,
+ * então o JS continua escrevendo num lugar só.
+ */
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    background: #05060a;
+    color-scheme: dark;
+}
+
+#game-container {
+    --turbo: 0;
+}
+
+#game-container canvas {
+    display: block;
+    /* Duas sombras: magenta larga e difusa (o calor) e ciano curta e fechada
+       (a luz de neon do próprio jogo). Juntas dão profundidade em vez de um
+       halo chapado de cor única. */
+    box-shadow:
+        0 0 calc(10px + var(--turbo) * 80px) calc(var(--turbo) * 8px)
+            rgba(255, 45, 85, calc(0.08 + var(--turbo) * 0.5)),
+        0 0 calc(4px + var(--turbo) * 26px)
+            rgba(0, 229, 255, calc(0.1 + var(--turbo) * 0.35));
+}
