@@ -23,8 +23,14 @@ class MenuJogar extends Phaser.Scene {
             .setOrigin(0.5)
             .setInteractive({ useHandCursor: true });
 
-        jogarBtn.on('pointerover', () => jogarBtn.setColor('#00e5ff'));
-        jogarBtn.on('pointerout', () => jogarBtn.setColor('#ffffff'));
+        jogarBtn.on('pointerover', () => {
+            jogarBtn.setColor('#00e5ff');
+            jogarBtn.setShadow(0, 0, '#00e5ff', 12, true, true);
+        });
+        jogarBtn.on('pointerout', () => {
+            jogarBtn.setColor('#ffffff');
+            jogarBtn.setShadow(0, 0, 'transparent', 0);
+        });
         jogarBtn.on('pointerdown', () => {
             this.scene.start('Preloader');
         });
