@@ -54,9 +54,9 @@
  */
 const TUNING = {
     // --- mexem na visão: subir com parcimônia ---
-    barrel: 0.06,        // deformação nas bordas
-    blur: 0.45,          // borrão direcional
-    vignetteClose: 0.14, // o quanto a vinheta fecha
+    barrel: 0.05,        // deformação nas bordas
+    blur: 0.22,          // borrão direcional
+    vignetteClose: 0.10, // o quanto a vinheta fecha
     streakAlpha: 0.26,   // opacidade dos riscos de velocidade
 
     // --- não atrapalham a leitura: pode exagerar à vontade ---
@@ -341,8 +341,8 @@ export default class TurboFX {
             // seguinte. Agora ela quase não fecha; o trabalho dela passou a
             // ser COLORIR a borda de magenta em vez de escondê-la. Dá o mesmo
             // recado de "túnel" sem cobrar visão por isso.
-            this.fVignette.radius = 0.88 - TUNING.vignetteClose * k;
-            this.fVignette.strength = 0.30 + 0.32 * k;
+            this.fVignette.radius = 0.90 - TUNING.vignetteClose * k;
+            this.fVignette.strength = 0.18 + 0.14 * k;
             this.fVignette.setColor(
                 Phaser.Display.Color.Interpolate.ColorWithColor(
                     this.colFrom, this.colTo, 100, Math.round(k * 100)

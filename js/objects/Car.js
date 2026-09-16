@@ -82,7 +82,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // um botão que se segura o tempo todo.
         this.turboFuel = 100;
         this.turboMax = 100;
-        this.turboDrainPerSec = 34;
+        this.turboDrainPerSec = 25;      // tanque cheio agora dura ~4s (era ~2.9s)
         this.turboRechargePerSec = 15;
         this.turboRechargeDelay = 550;   // ms de espera antes de voltar a encher
         this.turboMinToActivate = 18;    // precisa de um mínimo pra começar a usar
