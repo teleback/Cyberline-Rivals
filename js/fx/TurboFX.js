@@ -10,10 +10,13 @@
  *   1. PÓS-PROCESSAMENTO DE CÂMERA (Filters do Phaser 4)
  *      - Barrel: a imagem "estufa" nas bordas. É o velho truque de FOV dos
  *        jogos de corrida — a periferia corre mais que o centro.
- *      - Blur direcional: borrão no eixo do movimento. Mantido fraco de
- *        propósito: borrão demais vira sujeira, não velocidade.
+ *      - Blur direcional: borrão no eixo do movimento. Entra tarde e fraco;
+ *        borrão demais vira sujeira, não velocidade.
  *      - ColorMatrix: satura e clareia. O mundo "acende".
- *      - Vignette: fecha e tinge as bordas de magenta. Túnel.
+ *      - Vignette: tinge as bordas de magenta. Colore, quase não fecha.
+ *
+ * O bloco TUNING logo abaixo separa os efeitos que custam visão dos que não
+ * custam. Se algo aqui ficar no caminho do jogador, é lá que se mexe.
  *
  *   2. CÂMERA (movimento, não shader)
  *      - Afasta o zoom (mais mundo na tela = mais rápido).
@@ -38,6 +41,34 @@
  * junto com o mundo e ficaria ilegível justamente na hora em que você mais
  * precisa dele (olhando o tanque de turbo acabando).
  */
+/**
+ * Painel de ajuste.
+ *
+ * Os quatro primeiros valores mexem em QUANTO DA PISTA VOCÊ ENXERGA, e são os
+ * únicos aqui que podem atrapalhar o jogo de verdade. Efeito que tira visão
+ * numa curva não é estilo, é bug de design — então eles ficam separados dos
+ * outros, com o teto baixo de propósito.
+ *
+ * Todos são o valor do efeito quando a intensidade está em 1 (turbo cheio).
+ * Zerar qualquer um desliga aquele efeito sem quebrar nada.
+ */
+const TUNING = {
+    // --- mexem na visão: subir com parcimônia ---
+    barrel: 0.06,        // deformação nas bordas
+    blur: 0.45,          // borrão direcional
+    vignetteClose: 0.14, // o quanto a vinheta fecha
+    streakAlpha: 0.26,   // opacidade dos riscos de velocidade
+
+    // --- não atrapalham a leitura: pode exagerar à vontade ---
+    zoomOut: 0.085,      // afasta a câmera (na verdade AUMENTA o campo de visão)
+    saturation: 0.42,
+    brightness: 0.12,
+    hueShift: -7,
+    rumble: 1.3,         // tremor em pixels
+    glow: 6,             // brilho no carro
+    ghostAlpha: 0.38     // opacidade do rastro
+};
+
 export default class TurboFX {
     constructor(scene, car) {
         this.scene = scene;
@@ -202,7 +233,7 @@ export default class TurboFX {
             lifespan: 340,
             speed: { min: 700, max: 1300 },
             scale: { start: 1.4, end: 0.4 },
-            alpha: { start: 0.55, end: 0 },
+            alpha: { start: TUNING.streakAlpha, end: 0 },
             tint: [0xffffff, 0x9be9ff],
             blendMode: 'ADD',
             frequency: 24,
@@ -232,8 +263,8 @@ export default class TurboFX {
     // Eventos pontuais
     // ------------------------------------------------------------------
     onStart() {
-        this.flashAlpha = 0.34;
-        this.cam.shake(140, 0.006);
+        this.flashAlpha = 0.20;
+        this.cam.shake(140, 0.005);
         this.sparks.explode(14, this.exhaustX(), this.exhaustY());
     }
 
@@ -246,9 +277,9 @@ export default class TurboFX {
         // Estourou o tanque: tranco mais feio, faísca pra caramba, tela
         // pisca vermelho. Tem que doer um pouco pra você aprender a dosar.
         this.heatShake = 1;
-        this.flashAlpha = 0.5;
+        this.flashAlpha = 0.30;
         this.flash.fillColor = 0xff2d55;
-        this.cam.shake(320, 0.014);
+        this.cam.shake(320, 0.010);
         this.sparks.explode(34, this.exhaustX(), this.exhaustY());
     }
 
@@ -275,34 +306,43 @@ export default class TurboFX {
                 this.fBlur.active = true;
                 this.fColor.active = true;
 
-                // Estufa a imagem. Passa de ~1.2 e vira espelho de parque de
-                // diversões, então o teto fica baixo de propósito.
-                this.fBarrel.amount = 1 + 0.16 * k;
+                // Estufa a imagem — mas de leve. Acima de ~1.10 as bordas
+                // começam a esconder o que vem chegando, e num jogo em que
+                // você vê a pista de cima isso é informação perdida.
+                this.fBarrel.amount = 1 + TUNING.barrel * k;
 
                 // Borrão no eixo do movimento, reaproveitando a direção pra
                 // onde o carro já aponta.
                 const dir = car.rotation - Math.PI / 2;
                 this.fBlur.x = Math.abs(Math.cos(dir)) + 0.15;
                 this.fBlur.y = Math.abs(Math.sin(dir)) + 0.15;
-                this.fBlur.strength = 1.6 * k * k; // quadrático: só entra no fim
+                // Cúbico, não quadrático: assim o borrão fica praticamente
+                // invisível até uns 70% de turbo e só marca presença no pico.
+                // O blur é o efeito que mais suja a imagem por unidade de
+                // "sensação", então ele é o primeiro a levar corte.
+                this.fBlur.strength = TUNING.blur * k * k * k;
 
                 // Atenção: os helpers (saturate/brightness/hue) ficam em
                 // `.colorMatrix`, não no controller — o controller só carrega
                 // a matriz. `false` no primeiro reseta a matriz, `true` nos
                 // seguintes acumula em cima dela.
                 const cm = this.fColor.colorMatrix;
-                cm.saturate(0.42 * k, false);
-                cm.brightness(1 + 0.12 * k, true);
-                cm.hue(-7 * k, true);
+                cm.saturate(TUNING.saturation * k, false);
+                cm.brightness(1 + TUNING.brightness * k, true);
+                cm.hue(TUNING.hueShift * k, true);
             } else {
                 this.fBarrel.active = false;
                 this.fBlur.active = false;
                 this.fColor.active = false;
             }
 
-            // Vinheta fecha e esquenta de cor conforme a intensidade.
-            this.fVignette.radius = 0.85 - 0.40 * k;
-            this.fVignette.strength = 0.35 + 0.70 * k;
+            // Vinheta: antes ela fechava de 0.85 pra 0.45, o que comia um
+            // pedaço grande dos cantos — e é nos cantos que aparece a curva
+            // seguinte. Agora ela quase não fecha; o trabalho dela passou a
+            // ser COLORIR a borda de magenta em vez de escondê-la. Dá o mesmo
+            // recado de "túnel" sem cobrar visão por isso.
+            this.fVignette.radius = 0.88 - TUNING.vignetteClose * k;
+            this.fVignette.strength = 0.30 + 0.32 * k;
             this.fVignette.setColor(
                 Phaser.Display.Color.Interpolate.ColorWithColor(
                     this.colFrom, this.colTo, 100, Math.round(k * 100)
@@ -311,13 +351,15 @@ export default class TurboFX {
         }
 
         // --- Câmera ---
-        // Zoom pra trás = mais mundo entrando na tela = sensação de mais
-        // rápido. E um tremor contínuo de 1-2px pelo followOffset, que é mais
-        // barato e mais controlável do que empilhar shakes.
-        const targetZoom = this.baseZoom - 0.075 * k;
+        // Zoom pra trás = mais mundo entrando na tela. Note que este é o
+        // único efeito da lista que AUMENTA o que você enxerga, então ele
+        // subiu um pouco justamente pra compensar os outros que desceram.
+        const targetZoom = this.baseZoom - TUNING.zoomOut * k;
         this.cam.zoom += (targetZoom - this.cam.zoom) * Math.min(1, 6 * dt);
 
-        const rumble = 2.2 * k + 7 * this.heatShake;
+        // Tremor menor: sacudir a tela enquanto o jogador está mirando uma
+        // curva é o tipo de "juice" que atrapalha mais do que entrega.
+        const rumble = TUNING.rumble * k + 5 * this.heatShake;
         if (rumble > 0.05) {
             this.cam.setFollowOffset(
                 Phaser.Math.FloatBetween(-rumble, rumble),
@@ -355,7 +397,7 @@ export default class TurboFX {
                 .setRotation(car.rotation)
                 .setScale(1)
                 .setTint(0x00e5ff)
-                .setAlpha(0.42 * k)
+                .setAlpha(TUNING.ghostAlpha * k)
                 .setVisible(true);
 
             this.scene.tweens.add({
@@ -375,7 +417,7 @@ export default class TurboFX {
                 // Pulsa: brilho constante vira adesivo; brilho que respira
                 // vira motor.
                 const pulse = 0.82 + 0.18 * Math.sin(time * 0.028);
-                this.carGlow.outerStrength = 7 * k * pulse;
+                this.carGlow.outerStrength = TUNING.glow * k * pulse;
                 this.carGlow.color = k > 0.6 ? 0xff2d55 : 0x00e5ff;
             } else {
                 this.carGlow.outerStrength = 0;
@@ -395,10 +437,13 @@ export default class TurboFX {
         }
 
         // --- Riscos de velocidade ---
-        const streaking = k > 0.25;
+        // Riscos só a partir de 45% de turbo (era 25%) e em menor densidade:
+        // eles cruzam a tela inteira, então são o efeito que mais rouba
+        // atenção do que importa, que é a pista.
+        const streaking = k > 0.45;
         this.streaks.emitting = streaking;
         if (streaking) {
-            this.streaks.frequency = 30 - 22 * k;
+            this.streaks.frequency = 42 - 24 * k;
 
             // Direção dos riscos = contrário do carro, porque na tela é o
             // mundo que corre pra trás. Recalcula a cada ~70ms; a cada frame
