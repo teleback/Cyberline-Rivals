@@ -19,6 +19,7 @@ class Preloader extends Phaser.Scene {
         this.load.image('objetos', 'assets/images/tiles/tiles novos/objetos.png'+v);
         this.load.image('carro', 'assets/images/tiles/tiles novos/carro.png'+v);
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json'+v);
+        this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
     }
 
     create() { this.scene.start('Race'); }

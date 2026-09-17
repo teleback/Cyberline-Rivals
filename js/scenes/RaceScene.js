@@ -16,7 +16,9 @@ class Race extends Phaser.Scene {
             map.addTilesetImage('placas', 'placas'),
             map.addTilesetImage('calçada', 'calcada'),
             map.addTilesetImage('objetos', 'objetos'),
-            map.addTilesetImage('pixel invisivel', 'placas')
+            map.addTilesetImage('pixel invisivel', 'placas'),
+            map.addTilesetImage('start', 'chegada')     
+
         ].filter(Boolean);
 
         // BUG CORRIGIDO: `map.layers` (o Tilemap já parseado pelo Phaser) NUNCA
