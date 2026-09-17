@@ -105,6 +105,10 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.keyShift = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
         this.cursors = scene.input.keyboard.createCursorKeys();
+
+        // Trava geral: usada pelo CarDropIn pra impedir o jogador de acelerar
+        // enquanto o carro ainda está "caindo" na animação de entrada.
+        this.controlsEnabled = true;
     }
 
     /** Velocidade em "km/h" só pra leitura no HUD. */
@@ -113,6 +117,12 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
     }
 
     update(time, delta) {
+        if (!this.controlsEnabled) {
+            this.setVelocity(0, 0);
+            this.setAngularVelocity(0);
+            return;
+        }
+
         const { left, right, up, down } = this.cursors;
         const seconds = delta / 1000;
 

@@ -11,7 +11,7 @@ class Preloader extends Phaser.Scene {
         const v = `?v=${Date.now()}`;
         // Tilesets EXATAMENTE iguais aos do pista.json novo.
         this.load.image('pista', 'assets/images/tiles/tiles novos/pista.png'+v);
-        this.load.image('predios', 'assets/images/tiles/tiles novos/predios.png'+v);
+        this.load.image('predios', 'assets/images/tiles/tiles novos/Untitled.png'+v);
         this.load.image('chao', 'assets/images/tiles/tiles novos/chao.png'+v);
         this.load.image('favela', 'assets/images/tiles/tiles novos/favela.png'+v);
         this.load.image('placas', 'assets/images/tiles/tiles novos/placas.png'+v);
@@ -20,6 +20,7 @@ class Preloader extends Phaser.Scene {
         this.load.image('carro', 'assets/images/tiles/tiles novos/carro.png'+v);
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json'+v);
         this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
+        this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }
 
     create() { this.scene.start('Race'); }

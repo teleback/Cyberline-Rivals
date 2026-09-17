@@ -1,6 +1,8 @@
 import Car from '../objects/Car.js';
 import TurboFX from '../fx/TurboFX.js';
 import TurboAudio from '../fx/TurboAudio.js';
+import CarDropIn from '../fx/CarDropIn.js';
+import StartCountdown from '../fx/StartCountdown.js';
 
 class Race extends Phaser.Scene {
     constructor() { super('Race'); }
@@ -47,10 +49,19 @@ class Race extends Phaser.Scene {
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.cameras.main.setBounds(0, 0, worldW, worldH);
 
-        // O novo mapa usa tiles de 64px. O centro é um ponto seguro inicial;
-        // depois podemos colocar o spawn exatamente na linha de largada.
-        this.car = new Car(this, worldW / 2, worldH / 2, 'carro');
+        // Spawn na linha de chegada: camada "chegada" do Tiled fica na
+        // coluna de tile 80, linhas 52–56 (tiles de 64px), centralizada na
+        // pista, que ali vai de x=5 até x=90 tiles.
+        const startTileX = 80, startTileY = 54; // linha 54 = meio das 5 linhas (52–56)
+        const startX = startTileX * map.tileWidth + map.tileWidth / 2;
+        const startY = startTileY * map.tileHeight + map.tileHeight / 2;
+        this.car = new Car(this, startX, startY, 'carro');
         this.car.setDepth(1000);
+        // A pista aqui é uma reta horizontal (a linha de chegada corta ela
+        // na vertical): o carro precisa nascer virado de lado, não de
+        // "cabeça pra cima" como o sprite vem por padrão. -90° = de frente
+        // pra esquerda (sentido contrário à curva que vem depois da linha).
+        this.car.setAngle(-90);
 
         // Colisões desenhadas no objeto "colisao" do Tiled.
         this.walls = this.physics.add.staticGroup();
@@ -85,10 +96,43 @@ class Race extends Phaser.Scene {
         this.buildHud();
         this.splitCameras();
 
+        // O carro já nasce na posição certa (startX/startY), mas some pra
+        // cima e cai de volta nela — ver CarDropIn pra a animação completa.
+        // Só depois do pouso É QUE entra a contagem regressiva; os
+        // controles ficam travados até o "VAI!".
+        this.dropIn = new CarDropIn(this, this.car);
+        this.dropIn.play(startX, startY, {
+            onLand: () => this.startCountdown()
+        });
+
+        // Rede de segurança: se por qualquer motivo a queda ou a contagem
+        // travarem no meio do caminho, o jogador nunca fica preso sem poder
+        // andar — os controles liberam sozinhos depois de um tempo.
+        this.time.delayedCall(8000, () => {
+            if (this.car && !this.car.controlsEnabled) {
+                console.warn('Failsafe: liberando controles do carro.');
+                this.car.body.enable = true;
+                this.car.controlsEnabled = true;
+            }
+        });
+
         this.input.keyboard.on('keydown-M', () => {
             const muted = this.audio.toggleMute();
+            this.sound.mute = muted;
             this.muteLabel.setText(muted ? 'SOM: OFF  [M]' : 'SOM: ON  [M]');
         });
+    }
+
+    startCountdown() {
+        try {
+            this.countdown = new StartCountdown(this);
+            this.countdown.play(() => {
+                this.car.controlsEnabled = true;
+            });
+        } catch (e) {
+            console.error('RaceScene: contagem regressiva falhou, liberando o carro direto', e);
+            this.car.controlsEnabled = true;
+        }
     }
 
     onCrash() {

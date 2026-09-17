@@ -84,6 +84,34 @@ export default class TurboAudio {
             this.whineGain.connect(this.master);
             this.whine.start();
 
+            this.engine = ctx.createOscillator();
+            this.engine.type = 'sawtooth';
+            this.engine.frequency.value = 55;
+
+            this.engineFilter = ctx.createBiquadFilter();
+            this.engineFilter.type = 'lowpass';
+            this.engineFilter.frequency.value = 700;
+
+            this.engineGain = ctx.createGain();
+            this.engineGain.gain.value = 0;
+
+            this.engine.connect(this.engineFilter);
+            this.engineFilter.connect(this.engineGain);
+            this.engineGain.connect(this.master);
+            this.engine.start();
+
+            this.driftFilter = ctx.createBiquadFilter();
+            this.driftFilter.type = 'bandpass';
+            this.driftFilter.frequency.value = 1500;
+            this.driftFilter.Q.value = 0.8;
+
+            this.driftGain = ctx.createGain();
+            this.driftGain.gain.value = 0;
+
+            this.noise.connect(this.driftFilter);
+            this.driftFilter.connect(this.driftGain);
+            this.driftGain.connect(this.master);
+
             this.noiseBuffer = buffer;
             this.ready = true;
             return true;
@@ -149,8 +177,15 @@ export default class TurboAudio {
      * audíveis, porque o valor salta entre blocos de processamento.
      */
     update() {
+        const speed = this.car.body.speed;
+        if (!this.ready && (speed > 8 || this.car.isDrifting)) this.ensure();
         if (!this.ready) return;
+        if (this.ctx.state === 'suspended') this.ctx.resume();
+
         const k = this.muted ? 0 : this.car.turboIntensity;
+        const speedFactor = Phaser.Math.Clamp(speed / this.car.baseMaxVelocity, 0, 1);
+        const engineLoad = this.car.cursors.up.isDown ? 1 : 0.35;
+        const driftAmount = this.car.isDrifting ? speedFactor : 0;
         const now = this.ctx.currentTime;
         const t = 0.04;
 
@@ -160,6 +195,15 @@ export default class TurboAudio {
         this.whineGain.gain.setTargetAtTime(0.030 * k * k, now, t);
         this.whine.frequency.setTargetAtTime(110 + 710 * k, now, t);
         this.whineFilter.frequency.setTargetAtTime(700 + 2200 * k, now, t);
+
+        this.engineGain.gain.setTargetAtTime(
+            this.muted ? 0 : 0.045 * speedFactor * (0.55 + 0.45 * engineLoad), now, t
+        );
+        this.engine.frequency.setTargetAtTime(55 + 95 * speedFactor + 28 * engineLoad, now, t);
+        this.engineFilter.frequency.setTargetAtTime(450 + 850 * speedFactor, now, t);
+
+        this.driftGain.gain.setTargetAtTime(this.muted ? 0 : 0.16 * driftAmount, now, t);
+        this.driftFilter.frequency.setTargetAtTime(1100 + 1800 * speedFactor, now, t);
     }
 
     toggleMute() {
