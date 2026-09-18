@@ -9,6 +9,7 @@ class Race extends Phaser.Scene {
 
     create() {
         const map = this.make.tilemap({ key: 'pista' });
+        this.map = map;
 
         const tilesets = [
             map.addTilesetImage('Pista.png', 'pista'),
@@ -42,6 +43,7 @@ class Race extends Phaser.Scene {
         map.layers.forEach((layerData, index) => {
             const layer = map.createLayer(index, tilesets, 0, 0);
             if (layer) this.mapLayers.push(layer);
+            if (layer && layerData.name === 'Cyber placa') this.boostLayer = layer;
         });
 
         const worldW = map.width * map.tileWidth;
@@ -84,6 +86,7 @@ class Race extends Phaser.Scene {
         // matar a graça de um jogo de corrida. (Um collider só, com callback
         // — dois colliders pro mesmo par resolveriam a colisão duas vezes.)
         this.physics.add.collider(this.car, this.walls, () => this.onCrash());
+        this.createBoostSensors();
 
         this.cameras.main.setZoom(0.65);
         this.cameras.main.startFollow(this.car, true, 0.08, 0.08);
@@ -140,6 +143,82 @@ class Race extends Phaser.Scene {
         this.car.turboSpool = 0;
         this.car.turboFuel = Math.max(0, this.car.turboFuel - 22);
         this.cameras.main.shake(180, 0.011);
+    }
+
+    createBoostSensors() {
+        if (!this.boostLayer) return;
+
+        // A camada original tinha dois blocos 4x4 fora do asfalto. Ela serve
+        // apenas como referência no Tiled; as placas jogáveis ficam abaixo,
+        // distribuídas em trechos diferentes da pista.
+        this.boostLayer.setVisible(false);
+        const boostPositions = [
+            { x: 68, y: 54 },
+            { x: 85, y: 45 },
+            { x: 65, y: 42 },
+            { x: 32, y: 38 },
+            { x: 22, y: 24 },
+            { x: 7, y: 20 }
+        ];
+
+        this.boostSensors = this.physics.add.staticGroup();
+        this.boostVisuals = this.add.graphics().setDepth(900);
+        const tileWidth = this.map.tileWidth;
+        const tileHeight = this.map.tileHeight;
+        boostPositions.forEach(position => {
+            const centerX = position.x * tileWidth + tileWidth;
+            const centerY = position.y * tileHeight + tileHeight / 2;
+            const plateWidth = tileWidth * 2;
+            const halfWidth = plateWidth / 2;
+            const halfHeight = tileHeight / 2;
+
+            this.boostVisuals.fillStyle(0x071a2b, 0.9);
+            this.boostVisuals.fillRect(
+                centerX - halfWidth + 3,
+                centerY - halfHeight + 3,
+                plateWidth - 6,
+                tileHeight - 6
+            );
+            this.boostVisuals.lineStyle(2, 0x00e5ff, 0.95);
+            this.boostVisuals.strokeRect(
+                centerX - halfWidth + 4,
+                centerY - halfHeight + 4,
+                plateWidth - 8,
+                tileHeight - 8
+            );
+            this.boostVisuals.lineStyle(3, 0xff2bd6, 0.9);
+            this.boostVisuals.lineBetween(
+                centerX - halfWidth + 10,
+                centerY - halfHeight + 10,
+                centerX + halfWidth - 10,
+                centerY + halfHeight - 10
+            );
+            this.boostVisuals.lineBetween(
+                centerX - halfWidth + 10,
+                centerY + halfHeight - 10,
+                centerX + halfWidth - 10,
+                centerY - halfHeight + 10
+            );
+
+            const sensor = this.add.rectangle(
+                centerX,
+                centerY,
+                plateWidth,
+                tileHeight
+            );
+            sensor.setVisible(false);
+            sensor.boostCooldownUntil = 0;
+            this.physics.add.existing(sensor, true);
+            this.boostSensors.add(sensor);
+        });
+
+        this.physics.add.overlap(this.car, this.boostSensors, (car, sensor) => {
+            const now = this.time.now;
+            if (now < sensor.boostCooldownUntil) return;
+
+            sensor.boostCooldownUntil = now + 250;
+            car.activateTrackBoost(now);
+        });
     }
 
     // ------------------------------------------------------------------
@@ -207,6 +286,7 @@ class Race extends Phaser.Scene {
             ...this.mapLayers,
             this.car,
             ...this.walls.getChildren(),
+            this.boostVisuals,
             ...this.fx.worldObjects
         ];
         const ui = [...this.hud, ...this.fx.uiObjects];

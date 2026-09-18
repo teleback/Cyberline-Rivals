@@ -102,6 +102,12 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this._overheatUntil = 0;
         this._rechargeAfter = 0;
 
+        // Boosts desenhados na camada "Cyber placa" do tilemap.
+        this.trackBoostMultiplier = 1.3;
+        this.trackBoostDuration = 1500;
+        this.trackBoostUntil = 0;
+        this.isTrackBoostActive = false;
+
         this.keyShift = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
 
         this.cursors = scene.input.keyboard.createCursorKeys();
@@ -250,9 +256,29 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
         this.acceleration = this.baseAcceleration
             * (1 + (this.turboAccelMultiplier - 1) * this.turboSpool);
+        this.isTrackBoostActive = time < this.trackBoostUntil;
+        const trackBoostMultiplier = this.isTrackBoostActive
+            ? this.trackBoostMultiplier
+            : 1;
         this.setMaxVelocity(
-            this.baseMaxVelocity * (1 + (this.turboMaxVelMultiplier - 1) * this.turboSpool)
+            this.baseMaxVelocity
+            * (1 + (this.turboMaxVelMultiplier - 1) * this.turboSpool)
+            * trackBoostMultiplier
         );
+    }
+
+    activateTrackBoost(time) {
+        this.trackBoostUntil = time + this.trackBoostDuration;
+        this.isTrackBoostActive = true;
+
+        const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
+        const forwardSpeed = this.body.velocity.dot(forward);
+        if (forwardSpeed > 0) {
+            const boostedSpeed = forwardSpeed * this.trackBoostMultiplier;
+            this.body.velocity.add(forward.scale(boostedSpeed - forwardSpeed));
+        }
+
+        this.emit('track-boost-start');
     }
 
     // Separa a velocidade atual em componente "pra frente" (na direção que
