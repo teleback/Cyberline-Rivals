@@ -7854,7 +7854,7 @@
         {
          "columns":7,
          "firstgid":1,
-         "image":"..\/..\/Downloads\/download.png.png",
+         "image":"..\/tiles\/tiles novos\/pista.png",
          "imageheight":640,
          "imagewidth":448,
          "margin":0,
@@ -7867,7 +7867,7 @@
         {
          "columns":68,
          "firstgid":71,
-         "image":"Assets comprados 2 e redimensionados\/Untitled.png",
+         "image":"..\/tiles\/tiles novos\/predios.png",
          "imageheight":3008,
          "imagewidth":4384,
          "margin":0,
@@ -7880,7 +7880,7 @@
         {
          "columns":12,
          "firstgid":3267,
-         "image":"Assets comprados 2\/10.png",
+         "image":"..\/tiles\/tiles novos\/chao.png",
          "imageheight":768,
          "imagewidth":768,
          "margin":0,
@@ -7893,7 +7893,7 @@
         {
          "columns":12,
          "firstgid":3411,
-         "image":"Assets comprados 2 e redimensionados\/favela.png",
+         "image":"..\/tiles\/tiles novos\/favela.png",
          "imageheight":576,
          "imagewidth":768,
          "margin":0,
@@ -7906,7 +7906,7 @@
         {
          "columns":8,
          "firstgid":3519,
-         "image":"Assets comprados 2 e redimensionados\/placas.png",
+         "image":"..\/tiles\/tiles novos\/placas.png",
          "imageheight":512,
          "imagewidth":512,
          "margin":0,
@@ -7919,7 +7919,7 @@
         {
          "columns":8,
          "firstgid":3583,
-         "image":"Assets comprados 2 e redimensionados\/cal\u00e7ada.png",
+         "image":"..\/tiles\/tiles novos\/calcada.png",
          "imageheight":128,
          "imagewidth":512,
          "margin":0,
@@ -7932,7 +7932,7 @@
         {
          "columns":40,
          "firstgid":3599,
-         "image":"Assets comprados 2 e redimensionados\/objetos.png",
+         "image":"..\/tiles\/tiles novos\/objetos.png",
          "imageheight":1536,
          "imagewidth":2560,
          "margin":0,
@@ -7945,7 +7945,7 @@
         {
          "columns":32,
          "firstgid":4559,
-         "image":"Assets comprados 2 e redimensionados\/placas.png",
+         "image":"..\/tiles\/tiles novos\/placas.png",
          "imageheight":512,
          "imagewidth":512,
          "margin":0,
@@ -7958,7 +7958,7 @@
         {
          "columns":7,
          "firstgid":5583,
-         "image":"Assets comprados 2 e redimensionados\/start.png",
+         "image":"..\/tiles\/tiles novos\/chegada.png",
          "imageheight":64,
          "imagewidth":448,
          "margin":0,

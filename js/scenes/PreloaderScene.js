@@ -11,7 +11,7 @@ class Preloader extends Phaser.Scene {
         const v = `?v=${Date.now()}`;
         // Tilesets EXATAMENTE iguais aos do pista.json novo.
         this.load.image('pista', 'assets/images/tiles/tiles novos/pista.png'+v);
-        this.load.image('predios', 'assets/images/tiles/tiles novos/Untitled.png'+v);
+        this.load.image('predios', 'assets/images/tiles/tiles novos/predios.png'+v);
         this.load.image('chao', 'assets/images/tiles/tiles novos/chao.png'+v);
         this.load.image('favela', 'assets/images/tiles/tiles novos/favela.png'+v);
         this.load.image('placas', 'assets/images/tiles/tiles novos/placas.png'+v);
