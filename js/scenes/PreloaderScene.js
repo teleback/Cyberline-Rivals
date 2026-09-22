@@ -20,6 +20,7 @@ class Preloader extends Phaser.Scene {
         this.load.image('carro', 'assets/images/tiles/tiles novos/carro.png'+v);
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json'+v);
         this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
+        this.load.image('minimapTrack', 'assets/images/minimap_track.png'+v);
         this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }
 

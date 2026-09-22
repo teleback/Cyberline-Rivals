@@ -166,66 +166,107 @@ class Race extends Phaser.Scene {
     createBoostSensors() {
         if (!this.boostLayer) return;
 
-        // A camada original tinha dois blocos 4x4 fora do asfalto. Ela serve
-        // apenas como referência no Tiled; as placas jogáveis ficam abaixo,
-        // distribuídas em trechos diferentes da pista.
+        // A camada "Cyber placa" do Tiled contém as placas de referência,
+        // mas algumas delas ficam fora do asfalto. Por isso as placas jogáveis
+        // são recriadas aqui, usando pontos que ficam no CENTRO dos trechos
+        // retos da pista. Cada ponto também informa a orientação da pista:
+        // 0 = trecho horizontal, Math.PI / 2 = trecho vertical.
         this.boostLayer.setVisible(false);
+
         const boostPositions = [
-            { x: 68, y: 54 },
-            { x: 85, y: 45 },
-            { x: 65, y: 42 },
-            { x: 32, y: 38 },
-            { x: 22, y: 24 },
-            { x: 7, y: 20 }
+            // trecho inferior longo
+            { x: 46, y: 54, angle: 0 },
+            { x: 70, y: 54, angle: 0 },
+
+            // trecho vertical da direita
+            { x: 85, y: 45, angle: Math.PI / 2 },
+
+            // trecho horizontal do meio-direita
+            { x: 65, y: 42, angle: 0 },
+
+            // trecho horizontal central
+            { x: 32, y: 38, angle: 0 },
+
+            // trecho vertical central-esquerda
+            { x: 22, y: 24, angle: Math.PI / 2 },
+
+            // trecho vertical da esquerda
+            { x: 7, y: 20, angle: Math.PI / 2 },
+
+            // reta superior central
+            { x: 48, y: 14, angle: 0 }
         ];
 
         this.boostSensors = this.physics.add.staticGroup();
-        this.boostVisuals = this.add.graphics().setDepth(900);
+        this.boostVisuals = this.add.container(0, 0).setDepth(900);
+
         const tileWidth = this.map.tileWidth;
         const tileHeight = this.map.tileHeight;
-        boostPositions.forEach(position => {
-            const centerX = position.x * tileWidth + tileWidth;
+        const plateLength = tileWidth * 1.75;
+        const plateWidth = tileHeight * 0.72;
+
+        boostPositions.forEach((position, index) => {
+            const centerX = position.x * tileWidth + tileWidth / 2;
             const centerY = position.y * tileHeight + tileHeight / 2;
-            const plateWidth = tileWidth * 2;
-            const halfWidth = plateWidth / 2;
-            const halfHeight = tileHeight / 2;
 
-            this.boostVisuals.fillStyle(0x071a2b, 0.9);
-            this.boostVisuals.fillRect(
-                centerX - halfWidth + 3,
-                centerY - halfHeight + 3,
-                plateWidth - 6,
-                tileHeight - 6
-            );
-            this.boostVisuals.lineStyle(2, 0x00e5ff, 0.95);
-            this.boostVisuals.strokeRect(
-                centerX - halfWidth + 4,
-                centerY - halfHeight + 4,
-                plateWidth - 8,
-                tileHeight - 8
-            );
-            this.boostVisuals.lineStyle(3, 0xff2bd6, 0.9);
-            this.boostVisuals.lineBetween(
-                centerX - halfWidth + 10,
-                centerY - halfHeight + 10,
-                centerX + halfWidth - 10,
-                centerY + halfHeight - 10
-            );
-            this.boostVisuals.lineBetween(
-                centerX - halfWidth + 10,
-                centerY + halfHeight - 10,
-                centerX + halfWidth - 10,
-                centerY - halfHeight + 10
+            // A placa fica atravessada na pista. Nos trechos verticais ela
+            // gira 90 graus; isso evita a placa ficar atravessada/saindo do
+            // asfalto, que era o problema das posições antigas.
+            const plate = this.add.container(centerX, centerY);
+            plate.setRotation(position.angle);
+
+            const g = this.add.graphics();
+            g.fillStyle(0x071a2b, 0.96);
+            g.fillRoundedRect(
+                -plateLength / 2,
+                -plateWidth / 2,
+                plateLength,
+                plateWidth,
+                8
             );
 
+            g.lineStyle(2, 0x00e5ff, 0.95);
+            g.strokeRoundedRect(
+                -plateLength / 2 + 2,
+                -plateWidth / 2 + 2,
+                plateLength - 4,
+                plateWidth - 4,
+                6
+            );
+
+            // Setas no sentido da pista: visualmente deixa claro que é uma
+            // placa de aceleração, e não um obstáculo.
+            g.fillStyle(0xff2bd6, 0.95);
+            const arrowW = plateLength * 0.20;
+            const arrowH = plateWidth * 0.42;
+            for (let a = -1; a <= 1; a++) {
+                const ax = a * plateLength * 0.27;
+                g.beginPath();
+                g.moveTo(ax - arrowW * 0.55, -arrowH / 2);
+                g.lineTo(ax + arrowW * 0.10, -arrowH / 2);
+                g.lineTo(ax + arrowW * 0.55, 0);
+                g.lineTo(ax + arrowW * 0.10, arrowH / 2);
+                g.lineTo(ax - arrowW * 0.55, arrowH / 2);
+                g.lineTo(ax - arrowW * 0.08, 0);
+                g.closePath();
+                g.fillPath();
+            }
+
+            plate.add(g);
+            this.boostVisuals.add(plate);
+
+            // Sensor um pouco menor que a arte: o jogador precisa realmente
+            // passar pela placa, sem ativar ao raspar na borda da pista.
             const sensor = this.add.rectangle(
                 centerX,
                 centerY,
-                plateWidth,
-                tileHeight
+                plateLength * 0.88,
+                plateWidth * 0.82
             );
             sensor.setVisible(false);
+            sensor.setRotation(position.angle);
             sensor.boostCooldownUntil = 0;
+            sensor.boostIndex = index;
             this.physics.add.existing(sensor, true);
             this.boostSensors.add(sensor);
         });
@@ -234,8 +275,22 @@ class Race extends Phaser.Scene {
             const now = this.time.now;
             if (now < sensor.boostCooldownUntil) return;
 
-            sensor.boostCooldownUntil = now + 250;
+            // Pequeno cooldown evita que a mesma placa seja acionada várias
+            // vezes enquanto o carro ainda está em cima dela.
+            sensor.boostCooldownUntil = now + 500;
             car.activateTrackBoost(now);
+
+            // Feedback rápido: a placa "pisca" quando é usada.
+            const plate = this.boostVisuals.list[sensor.boostIndex];
+            if (plate) {
+                plate.setScale(1.08);
+                this.tweens.add({
+                    targets: plate,
+                    scale: 1,
+                    duration: 180,
+                    ease: 'Quad.easeOut'
+                });
+            }
         });
     }
 
@@ -450,6 +505,20 @@ class Race extends Phaser.Scene {
      */
     splitCameras() {
         const { width, height } = this.scale;
+
+        // --------------------------------------------------------------
+        // MINI-MAPA LEVE
+        // O minimapa antigo usava uma segunda câmera renderizando o mapa
+        // inteiro a cada frame. Como o seu mapa tem muitas camadas, isso
+        // pesa bastante. Agora o circuito é desenhado UMA VEZ como uma
+        // linha simples, seguindo o formato real da pista do Tiled.
+        // Resultado: visual no estilo de mapa de corrida e muito menos
+        // trabalho por frame.
+        this.createLightMinimap();
+
+        // --------------------------------------------------------------
+        // CÂMERA DE UI
+        // Criada por último para manter HUD e minimapa sempre nítidos.
         this.uiCam = this.cameras.add(0, 0, width, height);
         this.uiCam.setScroll(0, 0);
 
@@ -460,10 +529,126 @@ class Race extends Phaser.Scene {
             this.boostVisuals,
             ...this.fx.worldObjects
         ];
-        const ui = [...this.hud, ...this.fx.uiObjects];
+        const ui = [
+            ...this.hud,
+            ...this.fx.uiObjects,
+            this.miniMapBackground,
+            this.miniMapImage,
+            this.miniMapPlayer,
+            this.miniMapFrame,
+            this.miniMapLabel
+        ];
 
-        this.uiCam.ignore(world);
         this.cameras.main.ignore(ui);
+        this.uiCam.ignore(world);
+    }
+
+    createLightMinimap() {
+        const { width, height } = this.scale;
+
+        // Minimapa leve: o traçado é uma imagem pré-renderizada a partir
+        // da própria camada "Pista" do Tiled. Assim o desenho é fiel ao
+        // circuito e não precisamos de uma segunda câmera renderizando o
+        // mapa inteiro a cada frame.
+        this.miniW = Math.min(210, width - 28);
+        this.miniH = 114;
+        this.miniX = 14;
+        this.miniY = height - this.miniH - 18;
+
+        this.miniMapBackground = this.add.rectangle(
+            this.miniX + this.miniW / 2,
+            this.miniY + this.miniH / 2,
+            this.miniW,
+            this.miniH,
+            0x050711,
+            0.94
+        ).setScrollFactor(0).setDepth(7000);
+
+        this.miniMapImage = this.add.image(
+            this.miniX + this.miniW / 2,
+            this.miniY + this.miniH / 2 + 2,
+            'minimapTrack'
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(7001);
+
+        // O PNG foi gerado usando exatamente o contorno da camada Pista.
+        // Estes limites correspondem ao recorte do mapa usado no PNG.
+        this.miniWorldMinX = 312;
+        this.miniWorldMaxX = 5832;
+        this.miniWorldMinY = 760;
+        this.miniWorldMaxY = 3648;
+
+        // IMPORTANTE: o PNG já é uma representação completa do circuito.
+        // Antes ele era escalado duas vezes (mundo -> minimapa e PNG ->
+        // minimapa), fazendo a pista aparecer como um pontinho no centro.
+        // Agora o desenho ocupa o painel inteiro, mantendo a proporção do
+        // circuito. Só o marcador do carro é atualizado durante a corrida.
+        this.miniTrackScale = Math.min(
+            (this.miniW - 10) / 460,
+            (this.miniH - 10) / 250
+        );
+
+        const displayW = 460 * this.miniTrackScale;
+        const displayH = 250 * this.miniTrackScale;
+
+        this.miniMapImage.setDisplaySize(displayW, displayH);
+
+        this.miniMapFrame = this.add.rectangle(
+            this.miniX + this.miniW / 2,
+            this.miniY + this.miniH / 2,
+            this.miniW,
+            this.miniH,
+            0x000000,
+            0
+        ).setScrollFactor(0).setDepth(7003)
+            .setStrokeStyle(2, 0x00e5ff, 0.9);
+
+        this.miniMapLabel = this.add.text(
+            this.miniX + 8,
+            this.miniY - 14,
+            'MAPA',
+            {
+                fontFamily: 'monospace',
+                fontSize: '10px',
+                fontStyle: 'bold',
+                color: '#00e5ff'
+            }
+        ).setScrollFactor(0).setDepth(7004);
+
+        // Marcador do jogador: somente este objeto muda a cada frame.
+        // Marcador do jogador: uma bolinha simples, leve e fácil de enxergar.
+        this.miniMapPlayer = this.add.circle(
+            0, 0, 5,
+            0xff2bd6, 1
+        ).setScrollFactor(0).setDepth(7005);
+        this.miniMapPlayer.setStrokeStyle(1.5, 0xffffff, 1);
+
+        this.updateMinimap();
+    }
+
+    updateMinimap() {
+        if (!this.miniMapPlayer || !this.car) return;
+
+        const displayW = 460 * this.miniTrackScale;
+        const displayH = 250 * this.miniTrackScale;
+        const trackLeft = this.miniX + (this.miniW - displayW) / 2;
+        const trackTop = this.miniY + (this.miniH - displayH) / 2;
+
+        const x = Phaser.Math.Clamp(
+            trackLeft + (this.car.x - this.miniWorldMinX) /
+                (this.miniWorldMaxX - this.miniWorldMinX) * displayW,
+            trackLeft,
+            trackLeft + displayW
+        );
+
+        const y = Phaser.Math.Clamp(
+            trackTop + (this.car.y - this.miniWorldMinY) /
+                (this.miniWorldMaxY - this.miniWorldMinY) * displayH,
+            trackTop,
+            trackTop + displayH
+        );
+
+        this.miniMapPlayer.setPosition(x, y);
+        this.miniMapPlayer.setRotation(this.car.rotation);
     }
 
     updateHud() {
@@ -509,6 +694,7 @@ class Race extends Phaser.Scene {
         if (this.fx) this.fx.update(time, delta);
         if (this.audio) this.audio.update();
         if (this.turboBarFill) this.updateHud();
+        this.updateMinimap();
     }
 }
 export default Race;

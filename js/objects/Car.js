@@ -27,9 +27,9 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // em vez de parar instantaneamente ao soltar a seta.
         this.setDamping(true);
         this.setDrag(0.92);
-        this.setMaxVelocity(340);
+        this.setMaxVelocity(390);
 
-        this.acceleration = 460;
+        this.acceleration = 500;
         this.turnSpeed = 230; // graus por segundo
 
         // Aderência dos pneus: fração da velocidade LATERAL (de lado) que
@@ -93,7 +93,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.overheatDuration = 1800;    // ms travado depois de estourar o tanque
 
         this.baseAcceleration = this.acceleration;
-        this.baseMaxVelocity = 340;
+        this.baseMaxVelocity = 390;
 
         this.isTurboActive = false;
         this.turboSpool = 0;
@@ -103,8 +103,8 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this._rechargeAfter = 0;
 
         // Boosts desenhados na camada "Cyber placa" do tilemap.
-        this.trackBoostMultiplier = 1.3;
-        this.trackBoostDuration = 1500;
+        this.trackBoostMultiplier = 1.45;
+        this.trackBoostDuration = 1400;
         this.trackBoostUntil = 0;
         this.isTrackBoostActive = false;
 
