@@ -51,6 +51,22 @@ class Race extends Phaser.Scene {
         this.physics.world.setBounds(0, 0, worldW, worldH);
         this.cameras.main.setBounds(0, 0, worldW, worldH);
 
+        // --------------------------------------------------------------
+        // SISTEMA DE VOLTAS
+        // A camada `chegada` do Tiled é a própria linha de largada/chegada.
+        // Neste mapa ela ocupa x=80 e y=52..56 (tiles de 64px).
+        // O carro larga exatamente nela e segue para a esquerda, então
+        // contamos uma volta quando ele cruza essa linha novamente no
+        // sentido correto.
+        this.totalLaps = 3;
+        this.currentLap = 1;
+        this.raceFinished = false;
+        this.lapArmed = false;
+        this.previousCarX = null;
+        this.finishLineX = 80 * map.tileWidth + map.tileWidth / 2;
+        this.finishLineYMin = 52 * map.tileHeight - 20;
+        this.finishLineYMax = 57 * map.tileHeight + 20;
+
         // Spawn na linha de chegada: camada "chegada" do Tiled fica na
         // coluna de tile 80, linhas 52–56 (tiles de 64px), centralizada na
         // pista, que ali vai de x=5 até x=90 tiles.
@@ -64,6 +80,7 @@ class Race extends Phaser.Scene {
         // "cabeça pra cima" como o sprite vem por padrão. -90° = de frente
         // pra esquerda (sentido contrário à curva que vem depois da linha).
         this.car.setAngle(-90);
+        this.previousCarX = this.car.x;
 
         // Colisões desenhadas no objeto "colisao" do Tiled.
         this.walls = this.physics.add.staticGroup();
@@ -97,6 +114,7 @@ class Race extends Phaser.Scene {
         this.audio = new TurboAudio(this.car);
 
         this.buildHud();
+        this.createChampionOverlay();
         this.splitCameras();
 
         // O carro já nasce na posição certa (startX/startY), mas some pra
@@ -222,6 +240,155 @@ class Race extends Phaser.Scene {
     }
 
     // ------------------------------------------------------------------
+    // VOLTAS / CHEGADA
+    // ------------------------------------------------------------------
+    updateLapSystem() {
+        if (!this.car || this.raceFinished) return;
+
+        const x = this.car.x;
+        const y = this.car.y;
+        const previousX = this.previousCarX ?? x;
+
+        // Primeiro obrigamos o jogador a sair da linha de largada.
+        // Assim o spawn em cima da linha nunca conta como uma volta.
+        if (!this.lapArmed && Math.abs(x - this.finishLineX) > 220) {
+            this.lapArmed = true;
+        }
+
+        const crossedFinish =
+            this.lapArmed &&
+            previousX > this.finishLineX + 4 &&
+            x <= this.finishLineX + 4 &&
+            this.car.body.velocity.x < -20 &&
+            y >= this.finishLineYMin &&
+            y <= this.finishLineYMax;
+
+        if (crossedFinish) {
+            this.lapArmed = false;
+
+            if (this.currentLap < this.totalLaps) {
+                this.currentLap++;
+                this.lapLabel.setText(`VOLTA ${this.currentLap} / ${this.totalLaps}`);
+
+                // Pequeno feedback visual sem interromper a corrida.
+                this.tweens.add({
+                    targets: this.lapLabel,
+                    scale: 1.22,
+                    duration: 120,
+                    yoyo: true,
+                    ease: 'Quad.easeOut'
+                });
+            } else {
+                this.finishRace();
+            }
+        }
+
+        this.previousCarX = x;
+    }
+
+    finishRace() {
+        if (this.raceFinished) return;
+        this.raceFinished = true;
+        this.currentLap = this.totalLaps;
+        this.lapLabel.setText(`VOLTA ${this.totalLaps} / ${this.totalLaps}`);
+
+        // Para o carro exatamente ao cruzar a chegada.
+        this.car.controlsEnabled = false;
+        this.car.setVelocity(0, 0);
+        this.car.body.setAcceleration(0, 0);
+        this.car.setAngularVelocity(0);
+
+        this.playChampionAnimation();
+    }
+
+    createChampionOverlay() {
+        const { width, height } = this.scale;
+
+        this.championOverlay = this.add.rectangle(
+            width / 2, height / 2, width, height, 0x050711, 0.72
+        ).setScrollFactor(0).setDepth(5000).setVisible(false);
+
+        this.championPanel = this.add.rectangle(
+            width / 2, height / 2 + 8, Math.min(620, width - 60), 150, 0x0a1020, 0.96
+        ).setScrollFactor(0).setDepth(5001).setStrokeStyle(3, 0x00e5ff).setVisible(false);
+
+        this.championText = this.add.text(
+            width / 2, height / 2 - 18, 'CAMPEÃO!',
+            { fontFamily: 'monospace', fontSize: '48px', fontStyle: 'bold', color: '#00e5ff', stroke: '#07111f', strokeThickness: 8, align: 'center' }
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(5002).setVisible(false);
+
+        this.championSubtext = this.add.text(
+            width / 2, height / 2 + 38, '3 VOLTAS COMPLETAS',
+            { fontFamily: 'monospace', fontSize: '17px', color: '#ffffff', align: 'center' }
+        ).setOrigin(0.5).setScrollFactor(0).setDepth(5002).setVisible(false);
+
+        // Confetes simples feitos com retângulos: não precisa de novo asset.
+        this.championConfetti = [];
+        for (let i = 0; i < 28; i++) {
+            const piece = this.add.rectangle(
+                Phaser.Math.Between(0, width), -20,
+                Phaser.Math.Between(4, 9), Phaser.Math.Between(7, 15),
+                [0x00e5ff, 0xff2bd6, 0xffe066, 0xffffff][i % 4]
+            ).setScrollFactor(0).setDepth(5003).setVisible(false);
+            this.championConfetti.push(piece);
+        }
+
+        this.hud.push(
+            this.championOverlay,
+            this.championPanel,
+            this.championText,
+            this.championSubtext,
+            ...this.championConfetti
+        );
+    }
+
+    playChampionAnimation() {
+        const show = [
+            this.championOverlay, this.championPanel,
+            this.championText, this.championSubtext
+        ];
+        show.forEach(o => o.setVisible(true));
+
+        this.championOverlay.setAlpha(0);
+        this.championPanel.setAlpha(0).setScale(0.82);
+        this.championText.setAlpha(0).setScale(0.55);
+        this.championSubtext.setAlpha(0);
+
+        this.tweens.add({ targets: this.championOverlay, alpha: 1, duration: 350 });
+        this.tweens.add({ targets: this.championPanel, alpha: 1, scale: 1, duration: 500, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: this.championText, alpha: 1, scale: 1, duration: 650, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: this.championSubtext, alpha: 1, duration: 450, delay: 300 });
+
+        // O carro faz uma pequena comemoração: sobe, gira e volta para o
+        // chão, sem perder a posição onde terminou a terceira volta.
+        this.tweens.add({
+            targets: this.car,
+            scale: 1.22,
+            angle: this.car.angle - 360,
+            duration: 900,
+            ease: 'Cubic.easeOut',
+            yoyo: true,
+            hold: 120
+        });
+
+        this.championConfetti.forEach((piece, i) => {
+            piece.setPosition(Phaser.Math.Between(20, this.scale.width - 20), -20);
+            piece.setRotation(Phaser.Math.FloatBetween(-1, 1));
+            piece.setVisible(true);
+            this.tweens.add({
+                targets: piece,
+                y: this.scale.height + Phaser.Math.Between(20, 160),
+                x: piece.x + Phaser.Math.Between(-100, 100),
+                angle: Phaser.Math.Between(-5, 5),
+                duration: Phaser.Math.Between(1200, 2100),
+                delay: i * 22,
+                ease: 'Quad.easeIn',
+                onComplete: () => piece.setVisible(false)
+            });
+        });
+    }
+
+    // ------------------------------------------------------------------
     // HUD
     // ------------------------------------------------------------------
     buildHud() {
@@ -260,6 +427,10 @@ class Race extends Phaser.Scene {
 
         this.speedLabel = push(this.add.text(x, y + h + 24, '0 km/h', {
             fontFamily: 'monospace', fontSize: '22px', color: '#ffffff'
+        }).setScrollFactor(0).setDepth(2004).setOrigin(0, 0));
+
+        this.lapLabel = push(this.add.text(x, y + h + 55, `VOLTA 1 / ${this.totalLaps}`, {
+            fontFamily: 'monospace', fontSize: '18px', fontStyle: 'bold', color: '#ff2bd6'
         }).setScrollFactor(0).setDepth(2004).setOrigin(0, 0));
 
         this.muteLabel = push(this.add.text(this.scale.width - 16, 16, 'SOM: ON  [M]', {
@@ -334,6 +505,7 @@ class Race extends Phaser.Scene {
 
     update(time, delta) {
         if (this.car) this.car.update(time, delta);
+        this.updateLapSystem();
         if (this.fx) this.fx.update(time, delta);
         if (this.audio) this.audio.update();
         if (this.turboBarFill) this.updateHud();
