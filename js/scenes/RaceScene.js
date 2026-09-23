@@ -61,6 +61,15 @@ class Race extends Phaser.Scene {
         this.totalLaps = 3;
         this.currentLap = 1;
         this.raceFinished = false;
+
+        // CRONÔMETRO DA CORRIDA
+        // Começa somente quando o "VAI!" libera os controles e para ao
+        // cruzar a chegada. O valor é baseado no relógio interno do Phaser,
+        // então não depende da taxa de atualização do HUD.
+        this.raceTimerStarted = false;
+        this.raceStartTime = 0;
+        this.raceElapsedMs = 0;
+
         this.lapArmed = false;
         this.checkpointIndex = 0;
         this.checkpointCount = 4;
@@ -138,6 +147,7 @@ class Race extends Phaser.Scene {
                 console.warn('Failsafe: liberando controles do carro.');
                 this.car.body.enable = true;
                 this.car.controlsEnabled = true;
+                this.startRaceTimer();
             }
         });
 
@@ -153,11 +163,40 @@ class Race extends Phaser.Scene {
             this.countdown = new StartCountdown(this);
             this.countdown.play(() => {
                 this.car.controlsEnabled = true;
+                this.startRaceTimer();
             });
         } catch (e) {
             console.error('RaceScene: contagem regressiva falhou, liberando o carro direto', e);
             this.car.controlsEnabled = true;
+            this.startRaceTimer();
         }
+    }
+
+    startRaceTimer() {
+        if (this.raceTimerStarted || this.raceFinished) return;
+
+        this.raceTimerStarted = true;
+        this.raceStartTime = this.time.now;
+        this.raceElapsedMs = 0;
+        this.updateRaceTimerHud();
+    }
+
+    updateRaceTimerHud() {
+        if (!this.raceTimerLabel) return;
+
+        const elapsed = this.raceTimerStarted
+            ? (this.raceFinished ? this.raceElapsedMs : this.time.now - this.raceStartTime)
+            : 0;
+
+        this.raceTimerLabel.setText(this.formatRaceTime(Math.max(0, elapsed)));
+    }
+
+    formatRaceTime(ms) {
+        const totalCentiseconds = Math.floor(ms / 10);
+        const minutes = Math.floor(totalCentiseconds / 6000);
+        const seconds = Math.floor((totalCentiseconds % 6000) / 100);
+        const centiseconds = totalCentiseconds % 100;
+        return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
     }
 
     onCrash() {
@@ -170,132 +209,186 @@ class Race extends Phaser.Scene {
     createBoostSensors() {
         if (!this.boostLayer) return;
 
-        // A camada "Cyber placa" do Tiled contém as placas de referência,
-        // mas algumas delas ficam fora do asfalto. Por isso as placas jogáveis
-        // são recriadas aqui, usando pontos que ficam no CENTRO dos trechos
-        // retos da pista. Cada ponto também informa a orientação da pista:
-        // 0 = trecho horizontal, Math.PI / 2 = trecho vertical.
         this.boostLayer.setVisible(false);
 
         const boostPositions = [
-            // trecho inferior longo
-            { x: 46, y: 54, angle: 0 },
-            { x: 70, y: 54, angle: 0 },
-
-            // trecho vertical da direita
-            { x: 85, y: 45, angle: Math.PI / 2 },
-
-            // trecho horizontal do meio-direita
-            { x: 65, y: 42, angle: 0 },
-
-            // trecho horizontal central
-            { x: 32, y: 38, angle: 0 },
-
-            // trecho vertical central-esquerda
-            { x: 22, y: 24, angle: Math.PI / 2 },
-
-            // trecho vertical da esquerda
-            { x: 7, y: 20, angle: Math.PI / 2 },
-
-            // reta superior central
-            { x: 48, y: 14, angle: 0 }
+            { x: 46, y: 54, direction: Math.PI },
+            { x: 70, y: 54, direction: Math.PI },
+            { x: 85, y: 45, direction: Math.PI / 2 },
+            { x: 65, y: 42, direction: Math.PI },
+            { x: 32, y: 38, direction: Math.PI },
+            { x: 22, y: 24, direction: -Math.PI / 2 },
+            { x: 7.5, y: 20, direction: -Math.PI / 2 },
+            { x: 48, y: 15, direction: 0 }
         ];
 
         this.boostSensors = this.physics.add.staticGroup();
         this.boostVisuals = this.add.container(0, 0).setDepth(900);
+        this.boostData = [];
 
         const tileWidth = this.map.tileWidth;
         const tileHeight = this.map.tileHeight;
-        const plateLength = tileWidth * 1.75;
-        const plateWidth = tileHeight * 0.72;
+        // O asset é 64x96. A placa deve ficar exatamente no formato
+        // horizontal da placa amarela da pista, sem deformar a arte.
+        const plateWidth = tileWidth;          // 64
+        const plateLength = tileHeight * 1.5;  // 96
+        const carRadius = 16;                  // margem do corpo físico do carro
 
         boostPositions.forEach((position, index) => {
             const centerX = position.x * tileWidth + tileWidth / 2;
             const centerY = position.y * tileHeight + tileHeight / 2;
+            const rotation = position.direction + Math.PI / 2;
 
-            // A placa fica atravessada na pista. Nos trechos verticais ela
-            // gira 90 graus; isso evita a placa ficar atravessada/saindo do
-            // asfalto, que era o problema das posições antigas.
-            const plate = this.add.container(centerX, centerY);
-            plate.setRotation(position.angle);
-
-            const g = this.add.graphics();
-            g.fillStyle(0x071a2b, 0.96);
-            g.fillRoundedRect(
-                -plateLength / 2,
-                -plateWidth / 2,
-                plateLength,
-                plateWidth,
-                8
-            );
-
-            g.lineStyle(2, 0x00e5ff, 0.95);
-            g.strokeRoundedRect(
-                -plateLength / 2 + 2,
-                -plateWidth / 2 + 2,
-                plateLength - 4,
-                plateWidth - 4,
-                6
-            );
-
-            // Setas no sentido da pista: visualmente deixa claro que é uma
-            // placa de aceleração, e não um obstáculo.
-            g.fillStyle(0xff2bd6, 0.95);
-            const arrowW = plateLength * 0.20;
-            const arrowH = plateWidth * 0.42;
-            for (let a = -1; a <= 1; a++) {
-                const ax = a * plateLength * 0.27;
-                g.beginPath();
-                g.moveTo(ax - arrowW * 0.55, -arrowH / 2);
-                g.lineTo(ax + arrowW * 0.10, -arrowH / 2);
-                g.lineTo(ax + arrowW * 0.55, 0);
-                g.lineTo(ax + arrowW * 0.10, arrowH / 2);
-                g.lineTo(ax - arrowW * 0.55, arrowH / 2);
-                g.lineTo(ax - arrowW * 0.08, 0);
-                g.closePath();
-                g.fillPath();
-            }
-
-            plate.add(g);
+            const plate = this.add.image(centerX, centerY, 'placaboost');
+            plate.setDisplaySize(plateWidth, plateLength);
+            plate.setRotation(rotation);
+            plate.setOrigin(0.5);
+            plate.setAlpha(1);
             this.boostVisuals.add(plate);
 
-            // Sensor um pouco menor que a arte: o jogador precisa realmente
-            // passar pela placa, sem ativar ao raspar na borda da pista.
-            const sensor = this.add.rectangle(
-                centerX,
-                centerY,
-                plateLength * 0.88,
-                plateWidth * 0.82
-            );
+            // Sensor físico maior que a placa NÃO é usado para decidir o
+            // acerto. Guardamos a geometria real e fazemos a interseção
+            // círculo x retângulo rotacionado no update. Assim qualquer parte
+            // da placa pode ser atingida, inclusive os cantos.
+            const sensor = this.add.rectangle(centerX, centerY, plateLength, plateWidth);
             sensor.setVisible(false);
-            sensor.setRotation(position.angle);
-            sensor.boostCooldownUntil = 0;
-            sensor.boostIndex = index;
             this.physics.add.existing(sensor, true);
             this.boostSensors.add(sensor);
+
+            sensor.boostCooldownUntil = 0;
+            sensor.boostIndex = index;
+
+            this.boostData.push({
+                x: centerX,
+                y: centerY,
+                rotation,
+                halfX: plateWidth / 2,
+                halfY: plateLength / 2,
+                radius: carRadius,
+                sensor,
+                plate
+            });
         });
 
-        this.physics.add.overlap(this.car, this.boostSensors, (car, sensor) => {
-            const now = this.time.now;
-            if (now < sensor.boostCooldownUntil) return;
+        // Efeito principal: partículas de impacto. São criadas uma vez e
+        // reutilizadas para não gerar centenas de objetos durante a corrida.
+        this.boostBurst = this.add.particles(0, 0, 'fx-dot', {
+            lifespan: { min: 280, max: 700 },
+            speed: { min: 100, max: 360 },
+            scale: { start: 0.55, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: [0xfff36a, 0xffa600, 0x00e5ff, 0xff22cc, 0xffffff],
+            blendMode: Phaser.BlendModes.ADD,
+            emitting: false
+        }).setDepth(1100);
 
-            // Pequeno cooldown evita que a mesma placa seja acionada várias
-            // vezes enquanto o carro ainda está em cima dela.
-            sensor.boostCooldownUntil = now + 500;
-            car.activateTrackBoost(now);
+        this.boostSparkBurst = this.add.particles(0, 0, 'fx-dot', {
+            lifespan: { min: 180, max: 420 },
+            speed: { min: 180, max: 500 },
+            scale: { start: 0.30, end: 0 },
+            alpha: { start: 1, end: 0 },
+            tint: [0xffffff, 0xffe34d, 0xff6b00],
+            blendMode: Phaser.BlendModes.ADD,
+            emitting: false
+        }).setDepth(1110);
+    }
 
-            // Feedback rápido: a placa "pisca" quando é usada.
-            const plate = this.boostVisuals.list[sensor.boostIndex];
-            if (plate) {
-                plate.setScale(1.08);
-                this.tweens.add({
-                    targets: plate,
-                    scale: 1,
-                    duration: 180,
-                    ease: 'Quad.easeOut'
-                });
+    checkBoostPlates(time) {
+        if (!this.car || !this.boostData) return;
+
+        const carX = this.car.x;
+        const carY = this.car.y;
+
+        for (const boost of this.boostData) {
+            if (time < boost.sensor.boostCooldownUntil) continue;
+
+            // Transformamos a posição do carro para o espaço local da placa.
+            // A placa é um retângulo rotacionado; o corpo do carro é tratado
+            // como círculo. Isso faz o boost disparar ao tocar QUALQUER parte
+            // da placa, e não apenas quando o centro do carro passa no meio.
+            const dx = carX - boost.x;
+            const dy = carY - boost.y;
+            const cos = Math.cos(boost.rotation);
+            const sin = Math.sin(boost.rotation);
+            const localX = dx * cos + dy * sin;
+            const localY = -dx * sin + dy * cos;
+
+            const closestX = Phaser.Math.Clamp(localX, -boost.halfX, boost.halfX);
+            const closestY = Phaser.Math.Clamp(localY, -boost.halfY, boost.halfY);
+            const diffX = localX - closestX;
+            const diffY = localY - closestY;
+
+            // Se a distância até o retângulo for maior que o raio do
+            // corpo do carro, ainda não tocou na placa. Caso contrário,
+            // qualquer ponto/canto da placa conta como acerto.
+            if ((diffX * diffX + diffY * diffY) > boost.radius * boost.radius) {
+                continue;
             }
+
+            this.activateBoostPlate(boost, time);
+        }
+    }
+
+    activateBoostPlate(boost, time) {
+        // Impede retrigger instantâneo enquanto o carro ainda está sobre a
+        // placa, mas permite que ele use a mesma placa novamente depois.
+        boost.sensor.boostCooldownUntil = time + 550;
+        this.car.activateTrackBoost(time);
+
+        const x = boost.x;
+        const y = boost.y;
+
+        // Explosão radial forte.
+        this.boostBurst.explode(55, x, y);
+        this.boostSparkBurst.explode(32, x, y);
+
+        // Aproveita as faíscas do sistema de turbo do carro.
+        if (this.fx && this.fx.sparks) this.fx.sparks.explode(30, x, y);
+
+        // Onda de energia neon: não altera o tamanho da placa.
+        const ring1 = this.add.circle(x, y, 10, 0x00e5ff, 0.15)
+            .setStrokeStyle(4, 0xffe34d, 0.95)
+            .setDepth(1090);
+        const ring2 = this.add.circle(x, y, 5, 0xff22cc, 0.08)
+            .setStrokeStyle(2, 0xffffff, 0.9)
+            .setDepth(1091);
+
+        this.tweens.add({
+            targets: ring1,
+            radius: 62,
+            alpha: 0,
+            duration: 320,
+            ease: 'Cubic.easeOut',
+            onComplete: () => ring1.destroy()
         });
+        this.tweens.add({
+            targets: ring2,
+            radius: 38,
+            alpha: 0,
+            duration: 220,
+            ease: 'Cubic.easeOut',
+            onComplete: () => ring2.destroy()
+        });
+
+        // Pequeno impacto de câmera para o boost parecer realmente físico.
+        if (this.cameras && this.cameras.main) {
+            this.cameras.main.shake(110, 0.0045);
+        }
+
+        const plate = boost.plate;
+        if (plate) {
+            this.tweens.killTweensOf(plate);
+            plate.setScale(1);
+            plate.setAlpha(1);
+            this.tweens.add({
+                targets: plate,
+                alpha: 0.55,
+                duration: 55,
+                yoyo: true,
+                repeat: 2,
+                ease: 'Quad.easeOut'
+            });
+        }
     }
 
     // ------------------------------------------------------------------
@@ -307,19 +400,22 @@ class Race extends Phaser.Scene {
         // precisa realmente passar pelo portão para registrar.
         // Ordem: reta inferior -> subida esquerda -> reta superior -> subida direita.
         const checkpoints = [
-            // CP1 — reta inferior. Fica ENTRE as placas boost da parte de baixo.
-            { x: 3872, y: 3488, w: 150, h: 300, name: 'CP1' },
+            // O radar acompanha o formato da PISTA: além de atravessar a
+            // largura da estrada, ele tem uma boa profundidade no sentido
+            // da corrida. Assim não é necessário acertar um ponto exato.
+            // CP1 — reta inferior (horizontal).
+            { x: 3872, y: 3608, w: 560, h: 230, name: 'CP1' },
 
-            // CP2 — trecho vertical da esquerda, longe da placa boost.
-            { x: 544, y: 1824, w: 300, h: 150, name: 'CP2' },
+            // CP2 — trecho vertical da esquerda.
+            { x: 544, y: 1824, w: 230, h: 560, name: 'CP2' },
 
-            // CP3 — reta superior. Sai da posição da placa boost e vai para
-            // outro ponto da mesma reta, sem sobrepor o boost.
-            { x: 3872, y: 928, w: 150, h: 300, name: 'CP3' },
+            // CP3 — reta superior (horizontal).
+            { x: 3872, y: 928, w: 560, h: 230, name: 'CP3' },
 
-            // CP4 — trecho vertical da direita, antes de voltar para a chegada.
-            // Fica acima da região das placas boost da curva inferior direita.
-            { x: 4896, y: 2208, w: 300, h: 150, name: 'CP4' }
+            // CP4 — trecho vertical da direita. O sensor agora está na
+            // orientação correta da pista, colocando o checkpoint realmente
+            // sobre o trecho vertical do circuito.
+            { x: 4896, y: 2208, w: 230, h: 560, name: 'CP4' }
         ];
 
         this.checkpoints = [];
@@ -367,8 +463,11 @@ class Race extends Phaser.Scene {
         const gate = this.checkpoints[this.checkpointIndex];
         if (!gate) return;
 
-        const padX = Math.max(18, this.car.width * 0.35);
-        const padY = Math.max(18, this.car.height * 0.35);
+        // Radar adicional: a área já é grande, mas acrescentamos uma margem
+        // baseada no tamanho do carro para não perder o checkpoint em alta
+        // velocidade ou quando o carro passa ligeiramente pela borda.
+        const padX = Math.max(28, this.car.width * 0.65);
+        const padY = Math.max(28, this.car.height * 0.65);
         const insideX = Math.abs(this.car.x - gate.x) <= gate.width / 2 + padX;
         const insideY = Math.abs(this.car.y - gate.y) <= gate.height / 2 + padY;
 
@@ -620,6 +719,12 @@ class Race extends Phaser.Scene {
         this.currentLap = this.totalLaps;
         this.lapLabel.setText(`VOLTA ${this.totalLaps} / ${this.totalLaps}`);
 
+        if (this.raceTimerStarted) {
+            this.raceElapsedMs = Math.max(0, this.time.now - this.raceStartTime);
+            this.updateRaceTimerHud();
+            this.raceTimerLabel.setColor('#00ff9d');
+        }
+
         // Para o carro exatamente ao cruzar a chegada.
         this.car.controlsEnabled = false;
         this.car.setVelocity(0, 0);
@@ -724,6 +829,20 @@ class Race extends Phaser.Scene {
         const push = (...o) => { this.hud.push(...o); return o[0]; };
 
         const x = 24, y = 24, w = 210, h = 20;
+
+        // Cronômetro: canto superior direito, compacto e legível.
+        const timerX = this.scale.width - 24;
+        const timerY = 22;
+        // Cronômetro sem painel/fundo: mantém apenas os textos na HUD.
+        this.raceTimerPanel = null;
+
+        this.raceTimerTitle = push(this.add.text(timerX - 75, timerY + 7, 'TIME', {
+            fontFamily: 'monospace', fontSize: '10px', fontStyle: 'bold', color: '#8da7c7'
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(2001));
+
+        this.raceTimerLabel = push(this.add.text(timerX - 75, timerY + 19, '00:00.00', {
+            fontFamily: 'monospace', fontSize: '19px', fontStyle: 'bold', color: '#ffffff'
+        }).setOrigin(0.5, 0).setScrollFactor(0).setDepth(2001));
         this.barX = x; this.barY = y; this.barW = w; this.barH = h;
 
         // Trilho do tanque.
@@ -1002,11 +1121,13 @@ class Race extends Phaser.Scene {
 
     update(time, delta) {
         if (this.car) this.car.update(time, delta);
+        this.checkBoostPlates(time);
         this.checkCheckpointFallback();
         this.updateLapSystem();
         if (this.fx) this.fx.update(time, delta);
         if (this.audio) this.audio.update();
         if (this.turboBarFill) this.updateHud();
+        this.updateRaceTimerHud();
         this.updateMinimap();
     }
 }
