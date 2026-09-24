@@ -115,6 +115,25 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // Trava geral: usada pelo CarDropIn pra impedir o jogador de acelerar
         // enquanto o carro ainda está "caindo" na animação de entrada.
         this.controlsEnabled = true;
+
+        // --- Zona de óleo ---
+        // Enquanto o carro está EM CIMA de uma mancha (a RaceScene liga
+        // `isOnOil` a cada frame), existe um TETO de velocidade que
+        // começa na velocidade de entrada e vai caindo, mas nunca abaixo
+        // de `oilMinSpeed`. Resultado: o carro perde velocidade de forma
+        // moderada e perceptível, e continua andando. Não existe deslize:
+        // grip e direção ficam normais, e o teto só ESCALA o vetor de
+        // velocidade (sentido preservado, nunca aumenta). Saiu da mancha
+        // -> o teto é descartado no frame seguinte e tudo volta ao normal.
+        this.isOnOil = false;
+        this._oilSpeedCap = null;
+        // Fração do teto que SOBRA após 1s no óleo (perda proporcional).
+        this.oilSpeedRetention = 0.3;
+        // Perda fixa extra (px/s²): mantém a freada perceptível também
+        // em velocidades mais baixas.
+        this.oilMinDecel = 120;
+        // Piso do teto (px/s, ~34 km/h no HUD): o óleo nunca para o carro.
+        this.oilMinSpeed = 80;
     }
 
     /** Velocidade em "km/h" só pra leitura no HUD. */
@@ -197,8 +216,12 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // solta um tiquinho — carro "leve" na frente.
         this.grip = this.isDrifting ? this.driftGrip : this.normalGrip;
         if (this.isTurboActive) this.grip = Math.max(this.grip, 0.12 * this.turboSpool);
-
         this.applyGrip(delta);
+
+        // Zona de óleo: por último no frame, pra valer sobre qualquer
+        // aceleração/turbo aplicado acima.
+        if (this.isOnOil) this.applyOilDeceleration(seconds);
+        else this._oilSpeedCap = null;
     }
 
     updateTurbo(time, seconds, throttleDown, forward) {
@@ -279,6 +302,34 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         }
 
         this.emit('track-boost-start');
+    }
+
+    /**
+     * Desaceleração da zona de óleo, aplicada todo frame em que o carro
+     * está sobre a mancha. Mantém um teto de velocidade que nasce na
+     * velocidade de entrada e cai (proporcional + fixo) até no mínimo
+     * `oilMinSpeed`; se o carro estiver acima do teto, o vetor de
+     * velocidade é escalado até ele. Como o piso é maior que zero, o
+     * carro nunca fica parado (e um carro parado ainda consegue sair do
+     * óleo acelerando até o piso). Direção intacta, velocidade nunca
+     * sobe além da de entrada.
+     */
+    applyOilDeceleration(seconds) {
+        const speed = this.body.velocity.length();
+
+        if (this._oilSpeedCap === null) {
+            this._oilSpeedCap = Math.max(speed, this.oilMinSpeed);
+        }
+
+        this._oilSpeedCap = Math.max(
+            this.oilMinSpeed,
+            this._oilSpeedCap * Math.pow(this.oilSpeedRetention, seconds)
+                - this.oilMinDecel * seconds
+        );
+
+        if (speed > this._oilSpeedCap) {
+            this.body.velocity.scale(this._oilSpeedCap / speed);
+        }
     }
 
     // Separa a velocidade atual em componente "pra frente" (na direção que

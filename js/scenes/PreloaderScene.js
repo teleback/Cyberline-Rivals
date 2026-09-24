@@ -21,6 +21,11 @@ class Preloader extends Phaser.Scene {
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json'+v);
         this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
         this.load.image('placaboost', 'assets/images/tiles/tiles novos/placaboost.png'+v);
+        // Obstáculos da pista: barril azul que o carro pode colidir.
+        this.load.image('barril', 'assets/images/tiles/tiles novos/barril.png'+v);
+        // Zonas de óleo: desaceleram o carro enquanto ele passa por cima.
+        this.load.image('zonaoleo', 'assets/images/tiles/tiles novos/zonadeoleo.png'+v);
+        this.load.image('zonaoleo2', 'assets/images/tiles/tiles novos/zonadeoleo2.png'+v);
         this.load.image('minimapTrack', 'assets/images/minimap_track.png'+v);
         this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }

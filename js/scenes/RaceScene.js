@@ -1,5 +1,6 @@
 import Car from '../objects/Car.js';
 import TurboFX from '../fx/TurboFX.js';
+import OilFX from '../fx/OilFX.js';
 import TurboAudio from '../fx/TurboAudio.js';
 import CarDropIn from '../fx/CarDropIn.js';
 import StartCountdown from '../fx/StartCountdown.js';
@@ -124,6 +125,8 @@ class Race extends Phaser.Scene {
         // dos dois sabe o que o outro faz.
         this.fx = new TurboFX(this, this.car);
         this.audio = new TurboAudio(this.car);
+        this.createObstacles();
+        this.createOilZones();
 
         this.buildHud();
         this.updateCheckpointHud();
@@ -204,6 +207,136 @@ class Race extends Phaser.Scene {
         this.car.turboSpool = 0;
         this.car.turboFuel = Math.max(0, this.car.turboFuel - 22);
         this.cameras.main.shake(180, 0.011);
+    }
+
+    // ------------------------------------------------------------------
+    // OBSTÁCULOS (barris azuis)
+    // ------------------------------------------------------------------
+    // Posições calculadas a partir da própria camada "Pista" do Tiled,
+    // uma por trecho de pista (nunca colado numa curva fechada, sempre
+    // afastado das placas de boost, dos checkpoints e da linha de
+    // chegada). Cada ponto já vem deslocado ~90px pro lado a partir do
+    // centro do corredor — o carro sempre tem espaço livre de um lado
+    // pra desviar, em vez do barril bloquear bem no meio da pista.
+    createObstacles() {
+        const obstacleSpots = [
+            { x: 1248, y: 838 },
+            { x: 3424, y: 1018 },
+            { x: 4090, y: 1440 },
+            { x: 2310, y: 1696 },
+            { x: 5242, y: 2528 },
+            { x: 1030, y: 2656 },
+            { x: 570, y: 3104 },
+            { x: 3296, y: 3398 },
+            { x: 4832, y: 3578 }
+        ];
+
+        // Só o barril azul. Corpo de colisão em círculo (mais barato que
+        // retângulo aqui e não precisa se preocupar com rotação do
+        // sprite).
+        const kind = { key: 'barril', w: 48, h: 96, radius: 16 };
+
+        this.obstacles = this.physics.add.staticGroup();
+
+        obstacleSpots.forEach((spot) => {
+            const obstacle = this.obstacles.create(spot.x, spot.y, kind.key);
+            obstacle.setDepth(500);
+            obstacle.body.setCircle(
+                kind.radius,
+                kind.w / 2 - kind.radius,
+                kind.h / 2 - kind.radius
+            );
+            obstacle.refreshBody();
+            obstacle.hitCooldownUntil = 0;
+        });
+
+        // Um collider só (com callback), do mesmo jeito que a colisão com
+        // as paredes: dois colliders pro mesmo par resolveriam a física
+        // duas vezes e disparariam o efeito em dobro.
+        this.physics.add.collider(this.car, this.obstacles, (car, obstacle) => {
+            this.onObstacleHit(obstacle);
+        });
+    }
+
+    onObstacleHit(obstacle) {
+        const now = this.time.now;
+        if (now < obstacle.hitCooldownUntil) return;
+        obstacle.hitCooldownUntil = now + 700;
+
+        // Só pune de verdade se o carro vinha com alguma velocidade —
+        // encostar de leve, quase parado, não devia contar como batida.
+        if (this.car.body.speed < 40) return;
+
+        // O impacto tira uma boa parte da velocidade na hora — sem isso
+        // o obstáculo vira decoração que o carro atravessa raspando.
+        this.car.body.velocity.scale(0.45);
+        this.car.turboSpool = 0;
+        this.car.turboFuel = Math.max(0, this.car.turboFuel - 18);
+
+        this.cameras.main.shake(200, 0.014);
+
+        // Feedback no próprio obstáculo: pisca vermelho e sacode um pouco.
+        this.tweens.killTweensOf(obstacle);
+        obstacle.setTint(0xff6b6b);
+        this.tweens.add({
+            targets: obstacle,
+            angle: obstacle.angle + Phaser.Math.Between(-6, 6),
+            duration: 90,
+            yoyo: true,
+            ease: 'Quad.easeOut',
+            onComplete: () => obstacle.clearTint()
+        });
+
+        // Reaproveita as faíscas do turbo pra não criar outro emissor.
+        if (this.fx && this.fx.sparks) {
+            this.fx.sparks.explode(18, this.car.x, this.car.y);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // ZONAS DE ÓLEO
+    // ------------------------------------------------------------------
+    // Sensor por cima da pista (overlap, não collider — óleo não é
+    // parede, o carro atravessa por cima). Enquanto o carro estiver
+    // sobre qualquer mancha, ele é desacelerado com força (ver
+    // Car.applyOilDeceleration). `isOnOil` é recalculado todo frame em
+    // update(), então ao sair da mancha o carro volta ao normal.
+    createOilZones() {
+        const oilSpots = [
+            { x: 480, y: 928, tex: 'zonaoleo' },
+            { x: 2400, y: 928, tex: 'zonaoleo2' },
+            { x: 1440, y: 1120, tex: 'zonaoleo' },
+            { x: 4000, y: 1760, tex: 'zonaoleo2' },
+            { x: 1952, y: 1888, tex: 'zonaoleo' },
+            { x: 4896, y: 1888, tex: 'zonaoleo2' },
+            { x: 480, y: 2144, tex: 'zonaoleo' },
+            { x: 2400, y: 2720, tex: 'zonaoleo2' },
+            { x: 5664, y: 3168, tex: 'zonaoleo' },
+            { x: 3616, y: 3488, tex: 'zonaoleo2' }
+        ];
+
+        this.oilSensors = this.physics.add.staticGroup();
+        this.oilVisuals = this.add.container(0, 0).setDepth(480);
+
+        const oilFxSpots = [];
+
+        oilSpots.forEach((spot) => {
+            const puddle = this.add.image(spot.x, spot.y, spot.tex);
+            puddle.setDisplaySize(84, 84);
+            puddle.setAlpha(0.92);
+            this.oilVisuals.add(puddle);
+
+            const sensor = this.add.rectangle(spot.x, spot.y, 60, 60);
+            sensor.setVisible(false);
+            this.physics.add.existing(sensor, true);
+            this.oilSensors.add(sensor);
+            oilFxSpots.push({ sensor, puddle });
+        });
+
+        // Animação da zona de óleo (só visual — a mecânica de
+        // desaceleração está no Car). Criada aqui, antes de
+        // splitCameras(), pra câmera de UI ignorar os objetos dela.
+        this.oilFX = new OilFX(this, this.car, oilFxSpots, this.oilVisuals);
     }
 
     createBoostSensors() {
@@ -957,8 +1090,11 @@ class Race extends Phaser.Scene {
             ...this.mapLayers,
             this.car,
             ...this.walls.getChildren(),
+            ...this.obstacles.getChildren(),
+            this.oilVisuals,
             this.boostVisuals,
-            ...this.fx.worldObjects
+            ...this.fx.worldObjects,
+            ...(this.oilFX ? this.oilFX.worldObjects : [])
         ];
         const ui = [
             ...this.hud,
@@ -1120,11 +1256,20 @@ class Race extends Phaser.Scene {
     }
 
     update(time, delta) {
-        if (this.car) this.car.update(time, delta);
+        if (this.car) {
+            // Checagem direta por frame (sem callback): o carro está
+            // em cima de alguma mancha de óleo agora?
+            this.car.isOnOil = !!this.oilSensors
+                && this.physics.overlap(this.car, this.oilSensors);
+            this.car.update(time, delta);
+        }
         this.checkBoostPlates(time);
         this.checkCheckpointFallback();
         this.updateLapSystem();
         if (this.fx) this.fx.update(time, delta);
+        // Depois do TurboFX: o tint do carro é do TurboFX, o OilFX só
+        // entra por cima quando turbo/drift/superaquecimento estão de fora.
+        if (this.oilFX) this.oilFX.update(time, delta);
         if (this.audio) this.audio.update();
         if (this.turboBarFill) this.updateHud();
         this.updateRaceTimerHud();
