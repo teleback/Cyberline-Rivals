@@ -1,3 +1,5 @@
+import { onAnyButton } from '../input/GamepadInput.js';
+
 class MenuJogar extends Phaser.Scene {
     constructor() {
         super('MenuJogar');
@@ -33,6 +35,11 @@ class MenuJogar extends Phaser.Scene {
         });
         jogarBtn.on('pointerdown', () => {
             this.scene.start('Preloader');
+        });
+        // Controle: um pequeno atraso evita que o mesmo aperto da tela
+        // anterior já dispare o JOGAR.
+        this.time.delayedCall(400, () => {
+            onAnyButton(this, () => this.scene.start('Preloader'));
         });
     }
 }

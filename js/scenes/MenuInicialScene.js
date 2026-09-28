@@ -1,3 +1,4 @@
+import { onAnyButton } from '../input/GamepadInput.js';
 class MenuInicial extends Phaser.Scene {
     constructor() {
         super('MenuInicial');
@@ -37,6 +38,7 @@ class MenuInicial extends Phaser.Scene {
         this.input.once('pointerdown', () => {
             this.scene.start('MenuJogar');
         });
+        onAnyButton(this, () => this.scene.start('MenuJogar'));
     }
 
     // Aberração cromática "fake": duas cópias da imagem, uma tingida de

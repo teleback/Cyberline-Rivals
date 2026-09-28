@@ -1,3 +1,5 @@
+import { readGamepad, calibrateIfNeeded } from '../input/GamepadInput.js';
+
 export default class Car extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y, texture) {
         super(scene, x, y, texture);
@@ -112,6 +114,9 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
         this.cursors = scene.input.keyboard.createCursorKeys();
 
+        // Primeira vez com controle conectado: pede pra apertar L e R.
+        calibrateIfNeeded();
+
         // Trava geral: usada pelo CarDropIn pra impedir o jogador de acelerar
         // enquanto o carro ainda está "caindo" na animação de entrada.
         this.controlsEnabled = true;
@@ -148,7 +153,13 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             return;
         }
 
-        const { left, right, up, down } = this.cursors;
+        // Teclado + controle USB juntos: qualquer um dos dois funciona.
+        const pad = readGamepad();
+        this.padTurbo = pad.turbo;
+        const left = { isDown: this.cursors.left.isDown || pad.left };
+        const right = { isDown: this.cursors.right.isDown || pad.right };
+        const up = { isDown: this.cursors.up.isDown || pad.up };
+        const down = { isDown: this.cursors.down.isDown || pad.down };
         const seconds = delta / 1000;
 
         // Vetor apontando pra onde o nariz do carro está virado. Serve pro
@@ -234,7 +245,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // Pra LIGAR exige um mínimo no tanque; pra MANTER ligado basta ter
         // qualquer coisa. Sem isso o turbo ficaria piscando ligado/desligado
         // exatamente no limiar, e todo o efeito visual piscaria junto.
-        const wantsTurbo = this.keyShift.isDown && throttleDown && !this.isOverheated;
+        const wantsTurbo = (this.keyShift.isDown || this.padTurbo) && throttleDown && !this.isOverheated;
         const canStart = this.turboFuel >= this.turboMinToActivate;
         const shouldBeActive = wantsTurbo && (this.isTurboActive ? this.turboFuel > 0 : canStart);
 

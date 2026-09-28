@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>Teste do controle</title>
+<style>body{background:#111;color:#0ff;font-family:monospace;padding:20px}pre{font-size:16px}</style></head>
+<body><h2>Teste do controle USB</h2>
+<p>Aperte qualquer botão do controle. Anote o número de cada botão.</p>
+<pre id="out">Nenhum controle detectado...</pre>
+<script>
+function loop(){
+  const pads=[...navigator.getGamepads()].filter(Boolean);
+  let t='';
+  if(!pads.length){t='Nenhum controle detectado... aperte um botão.';}
+  pads.forEach(p=>{
+    t+=p.id+'\nmapping: '+(p.mapping||'(nenhum)')+'\n\nEixos:\n';
+    p.axes.forEach((a,i)=>t+='  axes['+i+'] = '+a.toFixed(2)+'\n');
+    t+='\nBotões apertados:\n';
+    const on=p.buttons.map((b,i)=>b.pressed?i:null).filter(i=>i!==null);
+    t+='  '+(on.length?on.join(', '):'-')+'\n';
+  });
+  document.getElementById('out').textContent=t;
+  requestAnimationFrame(loop);
+}
+loop();
+</script></body></html>
