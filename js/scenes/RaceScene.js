@@ -4,6 +4,7 @@ import OilFX from '../fx/OilFX.js';
 import TurboAudio from '../fx/TurboAudio.js';
 import CarDropIn from '../fx/CarDropIn.js';
 import StartCountdown from '../fx/StartCountdown.js';
+import CarFX from '../fx/CarFX.js';
 
 class Race extends Phaser.Scene {
     constructor() { super('Race'); }
@@ -116,6 +117,7 @@ class Race extends Phaser.Scene {
         // Efeitos e som do turbo. Os dois leem `car.turboIntensity`; nenhum
         // dos dois sabe o que o outro faz.
         this.fx = new TurboFX(this, this.car);
+        this.carFX = new CarFX(this, this.car);
         this.audio = new TurboAudio(this.car);
         this.createObstacles();
         this.createOilZones();
@@ -1301,6 +1303,7 @@ class Race extends Phaser.Scene {
         this.checkCheckpointFallback();
         this.updateLapSystem();
         if (this.fx) this.fx.update(time, delta);
+        if (this.carFX) this.carFX.update(delta);
         // Depois do TurboFX: o tint do carro é do TurboFX, o OilFX só
         // entra por cima quando turbo/drift/superaquecimento estão de fora.
         if (this.oilFX) this.oilFX.update(time, delta);
