@@ -94,21 +94,13 @@ class Race extends Phaser.Scene {
         this.car.setAngle(-90);
         this.previousCarX = this.car.x;
 
-        // Colisões desenhadas no objeto "colisao" do Tiled.
+        // Colisões desenhadas no Tiled. São DUAS camadas de objetos:
+        //  - "colisao": as 4 paredes externas do mapa;
+        //  - "colisoes pista": os muros/limites da pista em si (642 objetos).
+        // Antes só a primeira era lida, então a pista inteira ficava sem
+        // colisão. Agora as duas viram corpos estáticos invisíveis.
         this.walls = this.physics.add.staticGroup();
-        const collisionLayer = map.getObjectLayer('colisao');
-        if (collisionLayer) {
-            collisionLayer.objects.forEach(obj => {
-                const wall = this.add.rectangle(
-                    obj.x + (obj.width || 0) / 2,
-                    obj.y + (obj.height || 0) / 2,
-                    obj.width || 1, obj.height || 1
-                );
-                wall.setVisible(false);
-                this.physics.add.existing(wall, true);
-                this.walls.add(wall);
-            });
-        }
+        ['colisao', 'colisoes pista'].forEach(name => this.createWallsFromLayer(name));
         // Bater na parede em pleno turbo tem que custar: mata a turbina,
         // queima parte do tanque e sacode a tela. Sem isso, o turbo vira
         // "segurar SHIFT e raspar no muro", que é a forma mais rápida de
@@ -200,6 +192,48 @@ class Race extends Phaser.Scene {
         const seconds = Math.floor((totalCentiseconds % 6000) / 100);
         const centiseconds = totalCentiseconds % 100;
         return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
+    }
+
+    // Cria os corpos estáticos de colisão a partir de uma camada de objetos
+    // do Tiled. Tratamento de cada tipo de objeto:
+    //  - retângulo normal: vira um corpo retangular do mesmo tamanho;
+    //  - "ponto" (largura e altura ~0, feito com um clique só no Tiled — a
+    //    pista tem ~550 desses, formando as curvas): vira um círculo de
+    //    raio POINT_RADIUS. Como estão ~22px um do outro, os círculos se
+    //    sobrepõem e formam um muro contínuo;
+    //  - retângulo fino demais (uma dimensão ~0): ganha espessura mínima,
+    //    senão o carro atravessaria.
+    createWallsFromLayer(layerName) {
+        const layer = this.map.getObjectLayer(layerName);
+        if (!layer) {
+            console.warn(`[Race] Camada de colisão "${layerName}" não encontrada no Tiled.`);
+            return;
+        }
+        const POINT_RADIUS = 14;
+        const MIN_THICKNESS = 4;
+
+        layer.objects.forEach(obj => {
+            const w = obj.width || 0;
+            const h = obj.height || 0;
+            const isPoint = w < 2 && h < 2;
+
+            let cx, cy, bw, bh;
+            if (isPoint) {
+                cx = obj.x; cy = obj.y;
+                bw = bh = POINT_RADIUS * 2;
+            } else {
+                bw = Math.max(w, MIN_THICKNESS);
+                bh = Math.max(h, MIN_THICKNESS);
+                cx = obj.x + w / 2;
+                cy = obj.y + h / 2;
+            }
+
+            const wall = this.add.rectangle(cx, cy, bw, bh);
+            wall.setVisible(false);
+            this.physics.add.existing(wall, true);
+            if (isPoint) wall.body.setCircle(POINT_RADIUS);
+            this.walls.add(wall);
+        });
     }
 
     onCrash() {
