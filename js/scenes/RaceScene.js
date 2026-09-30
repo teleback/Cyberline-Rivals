@@ -5,6 +5,7 @@ import TurboAudio from '../fx/TurboAudio.js';
 import CarDropIn from '../fx/CarDropIn.js';
 import StartCountdown from '../fx/StartCountdown.js';
 import CarFX from '../fx/CarFX.js';
+import { showTouchControls, hideTouchControls } from '../input/TouchControls.js';
 
 class Race extends Phaser.Scene {
     constructor() { super('Race'); }
@@ -150,6 +151,11 @@ class Race extends Phaser.Scene {
         // cima e cai de volta nela — ver CarDropIn pra a animação completa.
         // Só depois do pouso É QUE entra a contagem regressiva; os
         // controles ficam travados até o "VAI!".
+        // Celular: joystick + botão de turbo aparecem junto com a partida
+        // (e somem ao terminar a corrida ou se a cena for encerrada).
+        showTouchControls();
+        this.events.once('shutdown', hideTouchControls);
+
         this.dropIn = new CarDropIn(this, this.car);
         this.dropIn.play(startX, startY, {
             onLand: () => this.startCountdown()
@@ -918,6 +924,9 @@ class Race extends Phaser.Scene {
             this.updateRaceTimerHud();
             this.raceTimerLabel.setColor('#00ff9d');
         }
+
+        // Some o joystick: a tela de pontuação precisa receber os toques.
+        hideTouchControls();
 
         // Para o carro exatamente ao cruzar a chegada.
         this.car.controlsEnabled = false;

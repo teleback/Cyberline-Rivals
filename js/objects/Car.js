@@ -1,4 +1,5 @@
 import { readGamepad, calibrateIfNeeded } from '../input/GamepadInput.js';
+import { readTouch } from '../input/TouchControls.js';
 
 export default class Car extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y, texture) {
@@ -153,13 +154,15 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             return;
         }
 
-        // Teclado + controle USB juntos: qualquer um dos dois funciona.
+        // Teclado + controle USB + toque (celular) juntos: qualquer um dos
+        // três funciona.
         const pad = readGamepad();
-        this.padTurbo = pad.turbo;
-        const left = { isDown: this.cursors.left.isDown || pad.left };
-        const right = { isDown: this.cursors.right.isDown || pad.right };
-        const up = { isDown: this.cursors.up.isDown || pad.up };
-        const down = { isDown: this.cursors.down.isDown || pad.down };
+        const touch = readTouch();
+        this.padTurbo = pad.turbo || touch.turbo;
+        const left = { isDown: this.cursors.left.isDown || pad.left || touch.left };
+        const right = { isDown: this.cursors.right.isDown || pad.right || touch.right };
+        const up = { isDown: this.cursors.up.isDown || pad.up || touch.up };
+        const down = { isDown: this.cursors.down.isDown || pad.down || touch.down };
         const seconds = delta / 1000;
 
         // Vetor apontando pra onde o nariz do carro está virado. Serve pro

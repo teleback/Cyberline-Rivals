@@ -3,6 +3,7 @@ import MenuInicial from './scenes/MenuInicialScene.js';
 import MenuJogar from './scenes/MenuJogarScene.js';
 import Preloader from './scenes/PreloaderScene.js';
 import Race from './scenes/RaceScene.js';
+import { initMobileSupport } from './input/MobileSupport.js';
 
 class Game extends Phaser.Game {
     constructor() {
@@ -19,4 +20,5 @@ class Game extends Phaser.Game {
 
 window.onload = () => {
     const game = new Game();
+    initMobileSupport();
 };
