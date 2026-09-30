@@ -27,6 +27,8 @@ class Preloader extends Phaser.Scene {
         this.load.image('zonaoleo', 'assets/images/tiles/tiles novos/zonadeoleo.png'+v);
         this.load.image('zonaoleo2', 'assets/images/tiles/tiles novos/zonadeoleo2.png'+v);
         this.load.image('minimapTrack', 'assets/images/minimap_track.png'+v);
+        // Fundo da tela de pontuação final.
+        this.load.image('scoreBg', 'assets/images/ui/score_bg.png'+v);
         this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }
 
