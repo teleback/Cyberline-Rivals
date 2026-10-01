@@ -30,6 +30,7 @@ class Race extends Phaser.Scene {
         this.startCountdownStarted = false;
         this.pendingClockProbes = new Map();
         this.clockOffsets = new Map();
+        this.networkRoundTrips = new Map();
         this.podiumShown = false;
         this.finishElapsedMs = null;
         const map = this.make.tilemap({ key: 'pista' });
@@ -131,6 +132,7 @@ class Race extends Phaser.Scene {
         // nascerem lado a lado, sem um carro ficar dentro do outro.
         this.playerSlot = MQTTClient.slotFor(this.playerId);
         const networkStartY = startY + (this.playerSlot === 0 ? -58 : 58);
+        this.startLineY = startY;
         this.car = new Car(this, startX, networkStartY, 'carro');
         this.car.setTint(this.carTint);
         this.car.setDepth(1000);
@@ -318,13 +320,25 @@ class Race extends Phaser.Scene {
                 (response.remoteReceivedAt - probeSentAt)
                 + (response.remoteSentAt - localReceivedAt)
             ) / 2;
-            this.clockOffsets.set(state.id, offset);
+            const roundTripMs = Math.max(0,
+                localReceivedAt - probeSentAt
+                - (response.remoteSentAt - response.remoteReceivedAt)
+            );
+            const previousOffset = this.clockOffsets.get(state.id);
+            const smoothedOffset = previousOffset === undefined
+                ? offset
+                : previousOffset + (offset - previousOffset) * 0.2;
+            this.clockOffsets.set(state.id, smoothedOffset);
+            this.networkRoundTrips.set(state.id, roundTripMs);
             const existingRemote = this.remotePlayers[state.id];
             if (existingRemote) {
-                existingRemote.clockOffset = offset;
+                existingRemote.clockOffset = smoothedOffset;
+                existingRemote.roundTripMs = roundTripMs;
                 if (existingRemote.startAt !== null && this.playerId.localeCompare(state.id) > 0) {
-                    this.raceStartAt = existingRemote.startAt - offset;
+                    this.raceStartAt = existingRemote.startAt - smoothedOffset;
                 }
+                existingRemote.snapshots.length = 0;
+                existingRemote.lastNetworkTs = 0;
             }
             this.pendingClockProbes.delete(response.nonce);
         }
@@ -352,6 +366,7 @@ class Race extends Phaser.Scene {
             sprite.body.setImmovable(true);
             sprite.body.setAllowGravity(false);
             const collider = this.physics.add.collider(this.car, sprite);
+            collider.active = false;
 
             const label = this.add.text(0, 0, state.nick || 'RIVAL', {
                 fontFamily: 'monospace',
@@ -376,6 +391,7 @@ class Race extends Phaser.Scene {
                 tint,
                 nick: state.nick || 'RIVAL',
                 clockOffset: this.clockOffsets.get(state.id) || 0,
+                roundTripMs: this.networkRoundTrips.get(state.id) || 0,
                 turboIntensity: 0,
                 networkControls: null,
                 snapshots: [],
@@ -429,7 +445,7 @@ class Race extends Phaser.Scene {
                 turboActive: state.turboActive === true,
                 drifting: state.drifting === true,
                 controls: state.controls || null,
-                receivedAt: performance.now()
+                receivedAt: networkTs - remote.clockOffset
             });
             remote.lastNetworkTs = networkTs;
             if (remote.snapshots.length > 12) remote.snapshots.shift();
@@ -463,12 +479,18 @@ class Race extends Phaser.Scene {
             const snapshots = remote.snapshots;
             if (!snapshots.length) return;
 
-            const renderAt = performance.now() - 50;
+            const bufferMs = Phaser.Math.Clamp(Math.max(45, remote.roundTripMs * 0.65), 45, 120);
+            const renderAt = Date.now() - bufferMs;
             while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) snapshots.shift();
             const first = snapshots[0];
             const second = snapshots[1] || first;
             let x, y, rotation;
-            if (snapshots.length > 1 && renderAt <= second.receivedAt) {
+            if (renderAt < first.receivedAt) {
+                const extrapolateSeconds = Math.max(-0.06, (renderAt - first.receivedAt) / 1000);
+                x = first.x + first.vx * extrapolateSeconds;
+                y = first.y + first.vy * extrapolateSeconds;
+                rotation = first.rotation + first.angularVelocity * (Math.PI / 180) * extrapolateSeconds;
+            } else if (snapshots.length > 1 && renderAt <= second.receivedAt) {
                 const span = Math.max(1, second.receivedAt - first.receivedAt);
                 const alpha = Phaser.Math.Clamp((renderAt - first.receivedAt) / span, 0, 1);
                 const angleDelta = Phaser.Math.Angle.Wrap(second.rotation - first.rotation);
@@ -543,6 +565,30 @@ class Race extends Phaser.Scene {
         this.roomStatusLabel.setText(message).setVisible(true);
     }
 
+    alignStartingCars(opponent) {
+        if (!this.localCarReady || this.startSlotsAppliedTo === opponent.id) return;
+
+        const localSlot = this.playerId.localeCompare(opponent.id) < 0 ? 0 : 1;
+        const remoteSlot = 1 - localSlot;
+        const localY = this.startLineY + (localSlot === 0 ? -58 : 58);
+        const remoteY = this.startLineY + (remoteSlot === 0 ? -58 : 58);
+
+        this.playerSlot = localSlot;
+        this.networkStartY = localY;
+        this.startSlotsAppliedTo = opponent.id;
+        this.car.setPosition(this.networkStartX, localY);
+        this.car.body.reset(this.networkStartX, localY);
+        this.car.setAngle(-90);
+        this.previousCarX = this.car.x;
+
+        const remote = this.remotePlayers[opponent.id];
+        if (!remote) return;
+        remote.sprite.setPosition(this.networkStartX, remoteY);
+        remote.sprite.body.reset(this.networkStartX, remoteY);
+        remote.snapshots.length = 0;
+        remote.collider.active = false;
+    }
+
     tryCoordinateStart() {
         if (this.raceTimerStarted || this.raceFinished) return;
         const opponents = this.getActiveOpponents();
@@ -564,12 +610,13 @@ class Race extends Phaser.Scene {
             return;
         }
 
+        this.alignStartingCars(opponent);
         const isCoordinator = this.playerId.localeCompare(opponent.id) < 0;
         if (isCoordinator && this.raceStartAt === null) {
             this.raceStartAt = Date.now() + 5000;
             this.publishNetworkState(true, true);
         } else if (!isCoordinator && Number.isFinite(opponent.startAt)) {
-            this.raceStartAt = opponent.startAt;
+            this.raceStartAt = opponent.startAt - opponent.clockOffset;
         }
 
         this.updateLobbyStatus();
@@ -593,6 +640,9 @@ class Race extends Phaser.Scene {
     beginRace() {
         if (!this.hasReadyPair() || !this.raceStartAt) return;
         this.roomStatusLabel?.setVisible(false);
+        Object.values(this.remotePlayers).forEach(remote => {
+            if (remote.online && remote.collider) remote.collider.active = true;
+        });
         this.car.controlsEnabled = true;
         this.startRaceTimer();
     }

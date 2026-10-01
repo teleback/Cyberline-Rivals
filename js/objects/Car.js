@@ -209,7 +209,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             brake: down.isDown,
             left: left.isDown,
             right: right.isDown,
-            turbo: this.padTurbo && up.isDown,
+            turbo: this.isTurboActive,
             drifting: this.isDrifting
         };
 
