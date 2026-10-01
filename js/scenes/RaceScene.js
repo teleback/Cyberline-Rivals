@@ -15,6 +15,7 @@ class Race extends Phaser.Scene {
         // A seleção feita antes da corrida define a aparência do carro.
         // O `carSkin` fica no objeto de cena para podermos sincronizá-lo
         // depois com o multiplayer MQTT.
+        this.playerNick = data.playerNick || 'PILOTO';
         this.carSkin = data.carSkin || 'cyan';
         this.carTint = data.carTint || 0x00e5ff;
         const map = this.make.tilemap({ key: 'pista' });
@@ -1420,6 +1421,10 @@ class Race extends Phaser.Scene {
         const timerY = 22;
         // Cronômetro sem painel/fundo: mantém apenas os textos na HUD.
         this.raceTimerPanel = null;
+
+        this.playerNickLabel = push(this.add.text(x, y - 5, `PILOTO: ${this.playerNick}`, {
+            fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#00e5ff'
+        }).setScrollFactor(0).setDepth(2004));
 
         this.raceTimerTitle = push(this.add.text(timerX - 75, timerY + 7, 'TIME', {
             fontFamily: 'monospace', fontSize: '10px', fontStyle: 'bold', color: '#8da7c7'

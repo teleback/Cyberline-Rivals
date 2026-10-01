@@ -32,6 +32,6 @@ class Preloader extends Phaser.Scene {
         this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }
 
-    create() { this.scene.start('Race'); }
+    create(data = {}) { this.scene.start('Race', data); }
 }
 export default Preloader;

@@ -34,7 +34,7 @@ class MenuJogar extends Phaser.Scene {
             jogarBtn.setShadow(0, 0, 'transparent', 0);
         });
         jogarBtn.on('pointerdown', () => {
-            this.scene.start('CarSelection');
+            this.scene.start('Nickname');
         });
         // Controle: um pequeno atraso evita que o mesmo aperto da tela
         // anterior já dispare o JOGAR.

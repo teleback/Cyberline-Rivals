@@ -16,7 +16,8 @@ class CarSelectionScene extends Phaser.Scene {
         this.load.image('carSelectPreview', 'assets/images/tiles/tiles novos/carro.png');
     }
 
-    create() {
+    create(data = {}) {
+        this.playerNick = data.playerNick || 'PILOTO';
         const { width, height } = this.scale;
 
         this.cameras.main.setBackgroundColor('#05060a');
@@ -33,7 +34,13 @@ class CarSelectionScene extends Phaser.Scene {
             strokeThickness: 1
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, height * 0.17, 'SELECIONE UMA COR PARA CORRER', {
+        this.add.text(width / 2, height * 0.145, `PILOTO: ${this.playerNick}`, {
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            color: '#00e5ff'
+        }).setOrigin(0.5);
+
+        this.add.text(width / 2, height * 0.19, 'SELECIONE UMA COR PARA CORRER', {
             fontFamily: 'monospace',
             fontSize: '12px',
             color: '#8ea0b5'
@@ -120,7 +127,7 @@ class CarSelectionScene extends Phaser.Scene {
 
     confirmSelection() {
         const car = this.cars[this.selected];
-        this.scene.start('Preloader', { carSkin: car.id, carTint: car.tint });
+        this.scene.start('Preloader', { carSkin: car.id, carTint: car.tint, playerNick: this.playerNick });
     }
 }
 
