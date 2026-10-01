@@ -11,7 +11,12 @@ import { showTouchControls, hideTouchControls } from '../input/TouchControls.js'
 class Race extends Phaser.Scene {
     constructor() { super('Race'); }
 
-    create() {
+    create(data = {}) {
+        // A seleção feita antes da corrida define a aparência do carro.
+        // O `carSkin` fica no objeto de cena para podermos sincronizá-lo
+        // depois com o multiplayer MQTT.
+        this.carSkin = data.carSkin || 'cyan';
+        this.carTint = data.carTint || 0x00e5ff;
         const map = this.make.tilemap({ key: 'pista' });
         this.map = map;
 
@@ -108,6 +113,7 @@ class Race extends Phaser.Scene {
         const startX = startTileX * map.tileWidth + map.tileWidth / 2;
         const startY = startTileY * map.tileHeight + map.tileHeight / 2;
         this.car = new Car(this, startX, startY, 'carro');
+        this.car.setTint(this.carTint);
         this.car.setDepth(1000);
         // A pista aqui é uma reta horizontal (a linha de chegada corta ela
         // na vertical): o carro precisa nascer virado de lado, não de

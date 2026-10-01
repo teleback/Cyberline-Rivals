@@ -2,6 +2,7 @@ import config from './config.js';
 import MenuInicial from './scenes/MenuInicialScene.js';
 import MenuJogar from './scenes/MenuJogarScene.js';
 import Preloader from './scenes/PreloaderScene.js';
+import CarSelection from './scenes/CarSelectionScene.js';
 import Race from './scenes/RaceScene.js';
 import { initMobileSupport } from './input/MobileSupport.js';
 
@@ -12,6 +13,7 @@ class Game extends Phaser.Game {
         this.scene.add('MenuInicial', MenuInicial);
         this.scene.add('MenuJogar', MenuJogar);
         this.scene.add('Preloader', Preloader);
+        this.scene.add('CarSelection', CarSelection);
         this.scene.add('Race', Race);
 
         this.scene.start('MenuInicial');
