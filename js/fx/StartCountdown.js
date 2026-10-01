@@ -17,6 +17,8 @@ const COLORS = ['#00e5ff', '#00e5ff', '#00e5ff', '#ff2d55'];
 export default class StartCountdown {
     constructor(scene) {
         this.scene = scene;
+        this.timers = [];
+        this.cancelled = false;
         const { width, height } = scene.scale;
 
         this.text = scene.add.text(width / 2, height / 2, '', {
@@ -37,12 +39,16 @@ export default class StartCountdown {
         scene.cameras.main.ignore(this.text);
     }
 
-    /** Toca a sequência inteira; chama onGo() no instante do "VAI!". */
-    play(onGo) {
+    /** Agenda as batidas no horário absoluto de largada compartilhado. */
+    play(onGo, goAt = Date.now() + BEAT_TIMES[BEAT_TIMES.length - 1] * 1000) {
         const scene = this.scene;
+        const goTime = BEAT_TIMES[BEAT_TIMES.length - 1];
+        const now = Date.now();
+        const sequenceStartsAt = goAt - goTime * 1000;
+        const lateness = now - sequenceStartsAt;
 
         try {
-            if (scene.cache.audio.exists('countdown')) {
+            if (lateness < 120 && scene.cache.audio.exists('countdown')) {
                 this.sound = scene.sound.add('countdown');
                 this.sound.play();
             }
@@ -52,13 +58,29 @@ export default class StartCountdown {
             console.error('StartCountdown: falha ao tocar o áudio', e);
         }
 
-        BEAT_TIMES.forEach((t, i) => {
-            scene.time.delayedCall(t * 1000, () => this.showBeat(i));
+        let currentBeat = -1;
+        BEAT_TIMES.forEach((beatTime, i) => {
+            const beatAt = goAt - (goTime - beatTime) * 1000;
+            const delay = beatAt - now;
+            if (delay <= 0) {
+                currentBeat = i;
+                return;
+            }
+            this.timers.push(scene.time.delayedCall(delay, () => {
+                if (!this.cancelled) this.showBeat(i);
+            }));
         });
+        if (currentBeat >= 0) this.showBeat(currentBeat);
 
-        const goTime = BEAT_TIMES[BEAT_TIMES.length - 1];
-        scene.time.delayedCall(goTime * 1000, () => { if (onGo) onGo(); });
-        scene.time.delayedCall((goTime + 0.9) * 1000, () => this.hide());
+        const goDelay = goAt - Date.now();
+        if (goDelay <= 0) {
+            if (!this.cancelled && onGo) onGo();
+        } else {
+            this.timers.push(scene.time.delayedCall(goDelay, () => {
+                if (!this.cancelled && onGo) onGo();
+            }));
+        }
+        this.timers.push(scene.time.delayedCall(Math.max(0, goAt + 900 - Date.now()), () => this.hide()));
     }
 
     showBeat(i) {
@@ -91,5 +113,13 @@ export default class StartCountdown {
             duration: 280,
             onComplete: () => this.text.destroy()
         });
+    }
+
+    cancel() {
+        this.cancelled = true;
+        this.timers.forEach(timer => timer.remove(false));
+        this.timers = [];
+        if (this.sound?.isPlaying) this.sound.stop();
+        if (this.text.active) this.text.destroy();
     }
 }

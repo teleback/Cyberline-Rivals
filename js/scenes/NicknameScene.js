@@ -75,7 +75,8 @@ class NicknameScene extends Phaser.Scene {
             }
             const safeNick = nick.slice(0, 16);
             try { localStorage.setItem('cyberlinePlayerNick', safeNick); } catch (_) {}
-            this.scene.start('RoomSelection', { playerNick: safeNick });
+            const playerId = this.getPlayerId();
+            this.scene.start('RoomSelection', { playerNick: safeNick, playerId });
         };
 
         button.addEventListener('click', continueToCars);
@@ -99,6 +100,19 @@ class NicknameScene extends Phaser.Scene {
     getSavedNickname() {
         try { return localStorage.getItem('cyberlinePlayerNick') || ''; }
         catch (_) { return ''; }
+    }
+
+    getPlayerId() {
+        try {
+            let id = localStorage.getItem('cyberlinePlayerId');
+            if (!id) {
+                id = (window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : '') || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+                localStorage.setItem('cyberlinePlayerId', id);
+            }
+            return id;
+        } catch (_) {
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
     }
 }
 

@@ -18,6 +18,7 @@ class CarSelectionScene extends Phaser.Scene {
 
     create(data = {}) {
         this.playerNick = data.playerNick || 'PILOTO';
+        this.playerId = data.playerId || this.getPlayerId();
         this.roomId = Number.isInteger(data.roomId) ? data.roomId : 1;
         const { width, height } = this.scale;
 
@@ -126,9 +127,28 @@ class CarSelectionScene extends Phaser.Scene {
         });
     }
 
+    getPlayerId() {
+        try {
+            let id = localStorage.getItem('cyberlinePlayerId');
+            if (!id) {
+                id = (window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : '') || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+                localStorage.setItem('cyberlinePlayerId', id);
+            }
+            return id;
+        } catch (_) {
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
+    }
+
     confirmSelection() {
         const car = this.cars[this.selected];
-        this.scene.start('Preloader', { carSkin: car.id, carTint: car.tint, playerNick: this.playerNick, roomId: this.roomId });
+        this.scene.start('Preloader', {
+            carSkin: car.id,
+            carTint: car.tint,
+            playerNick: this.playerNick,
+            playerId: this.playerId,
+            roomId: this.roomId
+        });
     }
 }
 

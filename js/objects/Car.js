@@ -134,6 +134,14 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // Trava geral: usada pelo CarDropIn pra impedir o jogador de acelerar
         // enquanto o carro ainda está "caindo" na animação de entrada.
         this.controlsEnabled = true;
+        this.networkControls = {
+            throttle: false,
+            brake: false,
+            left: false,
+            right: false,
+            turbo: false,
+            drifting: false
+        };
 
         // --- Zona de óleo ---
         // Enquanto o carro está EM CIMA de uma mancha (a RaceScene liga
@@ -164,6 +172,14 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         if (!this.controlsEnabled) {
             this.setVelocity(0, 0);
             this.setAngularVelocity(0);
+            this.networkControls = {
+                throttle: false,
+                brake: false,
+                left: false,
+                right: false,
+                turbo: false,
+                drifting: false
+            };
             return;
         }
 
@@ -188,6 +204,14 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.isDrifting = down.isDown
             && (left.isDown || right.isDown)
             && forwardSpeed > this.body.maxVelocity.x * this.driftMinSpeedFactor;
+        this.networkControls = {
+            throttle: up.isDown,
+            brake: down.isDown,
+            left: left.isDown,
+            right: right.isDown,
+            turbo: this.padTurbo && up.isDown,
+            drifting: this.isDrifting
+        };
 
         const speedFactor = Phaser.Math.Clamp(
             this.body.speed / this.body.maxVelocity.x, 0, 1

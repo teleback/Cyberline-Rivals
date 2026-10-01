@@ -7,6 +7,7 @@ import CarDropIn from '../fx/CarDropIn.js';
 import StartCountdown from '../fx/StartCountdown.js';
 import CarFX from '../fx/CarFX.js';
 import { showTouchControls, hideTouchControls } from '../input/TouchControls.js';
+import MQTTClient from '../MQTTClient.js';
 
 class Race extends Phaser.Scene {
     constructor() { super('Race'); }
@@ -16,8 +17,21 @@ class Race extends Phaser.Scene {
         // O `carSkin` fica no objeto de cena para podermos sincronizá-lo
         // depois com o multiplayer MQTT.
         this.playerNick = data.playerNick || 'PILOTO';
+        this.roomId = Number(data.roomId) || 1;
+        this.multiplayer = new MQTTClient(this, data.playerId);
+        this.playerId = this.multiplayer.playerId;
         this.carSkin = data.carSkin || 'cyan';
         this.carTint = data.carTint || 0x00e5ff;
+        this.remotePlayers = {};
+        this.lastNetworkSend = 0;
+        this.networkSendInterval = 33; // ~30 atualizações/s
+        this.localCarReady = false;
+        this.raceStartAt = null;
+        this.startCountdownStarted = false;
+        this.pendingClockProbes = new Map();
+        this.clockOffsets = new Map();
+        this.podiumShown = false;
+        this.finishElapsedMs = null;
         const map = this.make.tilemap({ key: 'pista' });
         this.map = map;
 
@@ -113,7 +127,11 @@ class Race extends Phaser.Scene {
         const startTileX = 80, startTileY = 54; // linha 54 = meio das 5 linhas (52–56)
         const startX = startTileX * map.tileWidth + map.tileWidth / 2;
         const startY = startTileY * map.tileHeight + map.tileHeight / 2;
-        this.car = new Car(this, startX, startY, 'carro');
+        // Os dois pilotos usam faixas diferentes da reta de largada para
+        // nascerem lado a lado, sem um carro ficar dentro do outro.
+        this.playerSlot = MQTTClient.slotFor(this.playerId);
+        const networkStartY = startY + (this.playerSlot === 0 ? -58 : 58);
+        this.car = new Car(this, startX, networkStartY, 'carro');
         this.car.setTint(this.carTint);
         this.car.setDepth(1000);
         // A pista aqui é uma reta horizontal (a linha de chegada corta ela
@@ -122,6 +140,8 @@ class Race extends Phaser.Scene {
         // pra esquerda (sentido contrário à curva que vem depois da linha).
         this.car.setAngle(-90);
         this.previousCarX = this.car.x;
+        this.networkStartX = startX;
+        this.networkStartY = networkStartY;
 
         // Colisões desenhadas no Tiled. São DUAS camadas de objetos:
         //  - "colisao": as 4 paredes externas do mapa;
@@ -166,23 +186,27 @@ class Race extends Phaser.Scene {
         // (e somem ao terminar a corrida ou se a cena for encerrada).
         showTouchControls();
         this.events.once('shutdown', hideTouchControls);
+        this.events.once('shutdown', () => {
+            if (this.multiplayer) {
+                this.multiplayer.disconnect();
+                this.multiplayer = null;
+            }
+            Object.values(this.remotePlayers).forEach(remote => {
+                remote.sprite?.destroy();
+                remote.label?.destroy();
+            });
+            this.remotePlayers = {};
+        });
 
         this.dropIn = new CarDropIn(this, this.car);
-        this.dropIn.play(startX, startY, {
-            onLand: () => this.startCountdown()
+        this.dropIn.play(startX, networkStartY, {
+            onLand: () => this.onLocalCarReady()
         });
 
-        // Rede de segurança: se por qualquer motivo a queda ou a contagem
-        // travarem no meio do caminho, o jogador nunca fica preso sem poder
-        // andar — os controles liberam sozinhos depois de um tempo.
-        this.time.delayedCall(8000, () => {
-            if (this.car && !this.car.controlsEnabled) {
-                console.warn('Failsafe: liberando controles do carro.');
-                this.car.body.enable = true;
-                this.car.controlsEnabled = true;
-                this.startRaceTimer();
-            }
-        });
+        // MQTT: entra na sala escolhida e passa a publicar/receber a posição
+        // dos pilotos. O estado de cada jogador é retido pelo broker, então
+        // quem entrar alguns segundos depois ainda recebe o carro adversário.
+        this.initMultiplayer();
 
         this.input.keyboard.on('keydown-M', () => {
             const muted = this.audio.toggleMute();
@@ -191,18 +215,386 @@ class Race extends Phaser.Scene {
         });
     }
 
+    async initMultiplayer() {
+        this.multiplayer.on('status', (status) => {
+            console.log(`[MQTT] sala ${this.roomId}: ${status}`);
+            this.updateLobbyStatus();
+        });
+
+        this.multiplayer.on('player', (state) => this.receiveRemotePlayer(state));
+
+        try {
+            await this.multiplayer.connect(this.roomId, {
+                nick: this.playerNick,
+                skin: this.carSkin,
+                tint: this.carTint
+            });
+
+            // Publica imediatamente o estado inicial, mesmo antes do primeiro
+            // frame de movimento.
+            this.publishNetworkState(true, true);
+            this.sendClockProbe();
+            this.time.addEvent({
+                delay: 3000,
+                loop: true,
+                callback: () => this.sendClockProbe()
+            });
+            this.updateLobbyStatus();
+            this.tryCoordinateStart();
+        } catch (error) {
+            console.error('[MQTT] Não foi possível conectar ao multiplayer:', error);
+            this.updateLobbyStatus();
+        }
+    }
+
+    sendClockProbe() {
+        if (!this.multiplayer?.connected) return;
+        const nonce = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+        const sentAt = Date.now();
+        this.pendingClockProbes.set(nonce, sentAt);
+        if (this.pendingClockProbes.size > 8) {
+            this.pendingClockProbes.delete(this.pendingClockProbes.keys().next().value);
+        }
+        this.publishNetworkState(true, false, { syncRequest: { nonce, sentAt } });
+    }
+
+    publishNetworkState(force = false, retain = false, extra = {}) {
+        if (!this.multiplayer || !this.multiplayer.connected || !this.car) return;
+
+        const now = performance.now();
+        if (!force && now - this.lastNetworkSend < this.networkSendInterval) return;
+        this.lastNetworkSend = now;
+
+        this.multiplayer.publish({
+            id: this.multiplayer.playerId,
+            sessionId: this.multiplayer.sessionId,
+            nick: this.playerNick,
+            skin: this.carSkin,
+            tint: this.carTint,
+            online: true,
+            ready: this.localCarReady,
+            startAt: this.raceStartAt,
+            finished: this.raceFinished,
+            finishElapsedMs: this.finishElapsedMs,
+            x: this.car.x,
+            y: this.car.y,
+            rotation: this.car.rotation,
+            vx: this.car.body?.velocity?.x || 0,
+            vy: this.car.body?.velocity?.y || 0,
+            speed: this.car.body?.speed || 0,
+            angularVelocity: this.car.body?.angularVelocity || 0,
+            controls: this.car.networkControls,
+            turboActive: this.car.isTurboActive,
+            turboIntensity: this.car.turboIntensity,
+            drifting: this.car.isDrifting,
+            lap: this.currentLap,
+            ts: Date.now(),
+            ...extra
+        }, { retain });
+    }
+
+    receiveRemotePlayer(state) {
+        if (!state || !state.id || state.id === this.playerId) return;
+
+        if (state.syncRequest?.nonce && Number.isFinite(state.syncRequest.sentAt)) {
+            const remoteReceivedAt = Date.now();
+            this.publishNetworkState(true, false, {
+                syncResponse: {
+                    nonce: state.syncRequest.nonce,
+                    sentAt: state.syncRequest.sentAt,
+                    remoteReceivedAt,
+                    remoteSentAt: Date.now()
+                }
+            });
+        }
+
+        const response = state.syncResponse;
+        const probeSentAt = response && this.pendingClockProbes.get(response.nonce);
+        if (Number.isFinite(probeSentAt)
+            && Number.isFinite(response.remoteReceivedAt)
+            && Number.isFinite(response.remoteSentAt)) {
+            const localReceivedAt = Date.now();
+            const offset = (
+                (response.remoteReceivedAt - probeSentAt)
+                + (response.remoteSentAt - localReceivedAt)
+            ) / 2;
+            this.clockOffsets.set(state.id, offset);
+            const existingRemote = this.remotePlayers[state.id];
+            if (existingRemote) {
+                existingRemote.clockOffset = offset;
+                if (existingRemote.startAt !== null && this.playerId.localeCompare(state.id) > 0) {
+                    this.raceStartAt = existingRemote.startAt - offset;
+                }
+            }
+            this.pendingClockProbes.delete(response.nonce);
+        }
+
+        if (state.online === false) {
+            this.removeRemotePlayer(state.id);
+            return;
+        }
+
+        let remote = this.remotePlayers[state.id];
+        if (!remote && Object.keys(this.remotePlayers).length >= 1) return;
+        if (!remote) {
+            const remoteSlot = MQTTClient.slotFor(state.id);
+            const baseY = this.networkStartY - (this.playerSlot === 0 ? -58 : 58);
+            const initialX = Number.isFinite(Number(state.x)) ? Number(state.x) : this.networkStartX;
+            const initialY = Number.isFinite(Number(state.y))
+                ? Number(state.y)
+                : baseY + (remoteSlot === 0 ? -58 : 58);
+            const tint = Number.isFinite(state.tint) ? state.tint : 0x00e5ff;
+            const sprite = this.physics.add.image(initialX, initialY, 'carro')
+                .setTint(tint)
+                .setDepth(999)
+                .setVisible(true);
+            sprite.body.setCircle(24, 25.5, 56);
+            sprite.body.setImmovable(true);
+            sprite.body.setAllowGravity(false);
+            const collider = this.physics.add.collider(this.car, sprite);
+
+            const label = this.add.text(0, 0, state.nick || 'RIVAL', {
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                fontStyle: 'bold',
+                color: '#ffffff',
+                backgroundColor: '#05060acc',
+                padding: { left: 4, right: 4, top: 2, bottom: 2 }
+            }).setOrigin(0.5, 1).setDepth(1001);
+
+            remote = this.remotePlayers[state.id] = {
+                id: state.id,
+                sessionId: state.sessionId || null,
+                sprite,
+                label,
+                collider,
+                online: true,
+                ready: false,
+                finished: false,
+                finishElapsedMs: null,
+                startAt: null,
+                tint,
+                nick: state.nick || 'RIVAL',
+                clockOffset: this.clockOffsets.get(state.id) || 0,
+                turboIntensity: 0,
+                networkControls: null,
+                snapshots: [],
+                lastNetworkTs: 0,
+                lastSeen: Date.now()
+            };
+
+            if (this.uiCam) {
+                this.uiCam.ignore([sprite, label]);
+            }
+        }
+
+        if (state.sessionId && remote.sessionId && state.sessionId !== remote.sessionId) {
+            remote.ready = false;
+            remote.finished = false;
+            remote.finishElapsedMs = null;
+            remote.startAt = null;
+            remote.snapshots = [];
+            remote.lastNetworkTs = 0;
+        }
+        remote.sessionId = state.sessionId || remote.sessionId;
+        remote.online = true;
+        remote.lastSeen = Date.now();
+        remote.ready = state.ready === true;
+        remote.finished = state.finished === true;
+        remote.finishElapsedMs = typeof state.finishElapsedMs === 'number' && Number.isFinite(state.finishElapsedMs)
+            ? Number(state.finishElapsedMs)
+            : null;
+        remote.startAt = typeof state.startAt === 'number' && Number.isFinite(state.startAt)
+            ? state.startAt
+            : null;
+
+        const isCoordinator = this.playerId.localeCompare(state.id) < 0;
+        if (!isCoordinator) {
+            this.raceStartAt = remote.startAt === null
+                ? null
+                : remote.startAt - remote.clockOffset;
+        }
+
+        const networkTs = Number(state.ts) || Date.now();
+        if (Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y))
+            && networkTs > remote.lastNetworkTs) {
+            remote.snapshots.push({
+                x: Number(state.x),
+                y: Number(state.y),
+                rotation: Number.isFinite(Number(state.rotation)) ? Number(state.rotation) : -Math.PI / 2,
+                vx: Number(state.vx) || 0,
+                vy: Number(state.vy) || 0,
+                angularVelocity: Number(state.angularVelocity) || 0,
+                turboIntensity: Phaser.Math.Clamp(Number(state.turboIntensity) || 0, 0, 1),
+                turboActive: state.turboActive === true,
+                drifting: state.drifting === true,
+                controls: state.controls || null,
+                receivedAt: performance.now()
+            });
+            remote.lastNetworkTs = networkTs;
+            if (remote.snapshots.length > 12) remote.snapshots.shift();
+        }
+
+        if (state.tint !== undefined) remote.tint = Number(state.tint) || 0x00e5ff;
+        if (state.nick) remote.nick = state.nick;
+        remote.networkControls = state.controls || remote.networkControls;
+        remote.turboIntensity = Phaser.Math.Clamp(Number(state.turboIntensity) || 0, 0, 1);
+        const remoteStatus = state.turboActive ? 'TURBO'
+            : state.drifting ? 'DRIFT'
+                : `${Math.round((Number(state.speed) || 0) * 0.42)} KM/H`;
+        const labelText = `${remote.nick}  ${remoteStatus}`;
+        if (remote.label.text !== labelText) remote.label.setText(labelText);
+        remote.sprite.setTint(state.turboActive ? 0xff5577 : remote.tint);
+        remote.sprite.setScale(1 + remote.turboIntensity * 0.045);
+        this.updateLobbyStatus();
+        this.tryCoordinateStart();
+        this.tryResolvePodium();
+    }
+
+    updateRemotePlayers(delta) {
+        const now = Date.now();
+        Object.entries(this.remotePlayers).forEach(([id, remote]) => {
+            if (!remote.online) return;
+            if (now - remote.lastSeen > 3500) {
+                this.removeRemotePlayer(id);
+                return;
+            }
+
+            const snapshots = remote.snapshots;
+            if (!snapshots.length) return;
+
+            const renderAt = performance.now() - 50;
+            while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) snapshots.shift();
+            const first = snapshots[0];
+            const second = snapshots[1] || first;
+            let x, y, rotation;
+            if (snapshots.length > 1 && renderAt <= second.receivedAt) {
+                const span = Math.max(1, second.receivedAt - first.receivedAt);
+                const alpha = Phaser.Math.Clamp((renderAt - first.receivedAt) / span, 0, 1);
+                const angleDelta = Phaser.Math.Angle.Wrap(second.rotation - first.rotation);
+                x = Phaser.Math.Linear(first.x, second.x, alpha);
+                y = Phaser.Math.Linear(first.y, second.y, alpha);
+                rotation = first.rotation + angleDelta * alpha;
+            } else {
+                const latest = snapshots[snapshots.length - 1];
+                const extrapolateSeconds = Math.min(90, Math.max(0, renderAt - latest.receivedAt)) / 1000;
+                x = latest.x + latest.vx * extrapolateSeconds;
+                y = latest.y + latest.vy * extrapolateSeconds;
+                rotation = latest.rotation + latest.angularVelocity * (Math.PI / 180) * extrapolateSeconds;
+            }
+
+            remote.sprite.setPosition(x, y);
+            remote.sprite.rotation = rotation;
+
+            remote.label.setPosition(remote.sprite.x, remote.sprite.y - 82);
+        });
+    }
+
+    removeRemotePlayer(id) {
+        const remote = this.remotePlayers[id];
+        if (!remote) return;
+        if (remote.finished && Number.isFinite(remote.finishElapsedMs)) {
+            remote.online = false;
+            remote.lastSeen = Date.now();
+            this.updateLobbyStatus();
+            this.tryResolvePodium();
+            return;
+        }
+        remote.collider?.destroy();
+        remote.sprite?.destroy();
+        remote.label?.destroy();
+        delete this.remotePlayers[id];
+        this.updateLobbyStatus();
+        this.tryCoordinateStart();
+    }
+
+    getActiveOpponents() {
+        const now = Date.now();
+        return Object.values(this.remotePlayers).filter(player =>
+            player.online && now - player.lastSeen <= 3500
+        );
+    }
+
+    hasReadyPair() {
+        const opponents = this.getActiveOpponents();
+        return this.multiplayer?.connected === true
+            && this.localCarReady
+            && opponents.length === 1
+            && opponents[0].ready;
+    }
+
+    onLocalCarReady() {
+        this.localCarReady = true;
+        this.publishNetworkState(true, true);
+        this.updateLobbyStatus();
+        this.tryCoordinateStart();
+    }
+
+    updateLobbyStatus() {
+        if (!this.roomStatusLabel || this.raceTimerStarted || this.raceFinished) return;
+        const opponents = this.getActiveOpponents();
+        let message = 'CONECTANDO À SALA...';
+        if (this.multiplayer?.connected) {
+            if (opponents.length === 0) message = 'AGUARDANDO OUTRO JOGADOR...';
+            else if (opponents.length > 1) message = 'SALA CHEIA — MÁXIMO 2 JOGADORES';
+            else if (!this.localCarReady || !opponents[0].ready) message = 'AGUARDANDO OS DOIS CARROS...';
+            else message = 'PREPARANDO A LARGADA...';
+        }
+        this.roomStatusLabel.setText(message).setVisible(true);
+    }
+
+    tryCoordinateStart() {
+        if (this.raceTimerStarted || this.raceFinished) return;
+        const opponents = this.getActiveOpponents();
+        const opponent = opponents.length === 1 ? opponents[0] : null;
+        const ready = this.hasReadyPair();
+
+        if (!ready) {
+            if (this.startCountdownStarted) {
+                this.countdown?.cancel();
+                this.countdown = null;
+                this.startCountdownStarted = false;
+            }
+            if (this.raceStartAt !== null) {
+                const isCoordinator = !opponent || this.playerId.localeCompare(opponent.id) < 0;
+                this.raceStartAt = null;
+                if (isCoordinator && this.multiplayer?.connected) this.publishNetworkState(true, true);
+            }
+            this.updateLobbyStatus();
+            return;
+        }
+
+        const isCoordinator = this.playerId.localeCompare(opponent.id) < 0;
+        if (isCoordinator && this.raceStartAt === null) {
+            this.raceStartAt = Date.now() + 5000;
+            this.publishNetworkState(true, true);
+        } else if (!isCoordinator && Number.isFinite(opponent.startAt)) {
+            this.raceStartAt = opponent.startAt;
+        }
+
+        this.updateLobbyStatus();
+        if (this.raceStartAt && Date.now() >= this.raceStartAt - 3120) this.startCountdown();
+    }
+
     startCountdown() {
+        if (this.startCountdownStarted || !this.raceStartAt || !this.hasReadyPair()) return;
+        this.startCountdownStarted = true;
         try {
             this.countdown = new StartCountdown(this);
             this.countdown.play(() => {
-                this.car.controlsEnabled = true;
-                this.startRaceTimer();
-            });
+                this.beginRace();
+            }, this.raceStartAt);
         } catch (e) {
-            console.error('RaceScene: contagem regressiva falhou, liberando o carro direto', e);
-            this.car.controlsEnabled = true;
-            this.startRaceTimer();
+            console.error('RaceScene: contagem regressiva falhou.', e);
+            this.time.delayedCall(Math.max(0, this.raceStartAt - Date.now()), () => this.beginRace());
         }
+    }
+
+    beginRace() {
+        if (!this.hasReadyPair() || !this.raceStartAt) return;
+        this.roomStatusLabel?.setVisible(false);
+        this.car.controlsEnabled = true;
+        this.startRaceTimer();
     }
 
     startRaceTimer() {
@@ -212,6 +604,7 @@ class Race extends Phaser.Scene {
         this.raceStartTime = this.time.now;
         this.raceElapsedMs = 0;
         this.updateRaceTimerHud();
+        this.publishNetworkState(true, true);
     }
 
     updateRaceTimerHud() {
@@ -976,6 +1369,7 @@ class Race extends Phaser.Scene {
             this.updateRaceTimerHud();
             this.raceTimerLabel.setColor('#00ff9d');
         }
+        this.finishElapsedMs = this.raceElapsedMs;
 
         // Some o joystick: a tela de pontuação precisa receber os toques.
         hideTouchControls();
@@ -987,14 +1381,42 @@ class Race extends Phaser.Scene {
         this.car.body.setAcceleration(0, 0);
         this.car.setAngularVelocity(0);
 
-        // Terminar +1. Não há rivais na pista, então o jogador é o 1º lugar.
+        // A colocação só é definida depois de receber a chegada do adversário.
         this.baseScore += this.scoreRules.finish;
-        this.baseScore += this.scoreRules.firstPlace;
+        this.publishNetworkState(true, true);
+        this.showWaitingForOpponent();
+        this.tryResolvePodium();
+    }
+
+    showWaitingForOpponent() {
+        this.championOverlay.setVisible(true).setAlpha(0.72);
+        this.championPanel.setVisible(true).setAlpha(1).setScale(1);
+        this.championText
+            .setText('CORRIDA FINALIZADA')
+            .setFontSize(this.scale.width < 500 ? 23 : 38)
+            .setColor('#00e5ff').setVisible(true).setAlpha(1).setScale(1);
+        this.championSubtext.setText('AGUARDANDO ADVERSÁRIO...').setVisible(true).setAlpha(1);
+    }
+
+    tryResolvePodium() {
+        if (!this.raceFinished || this.podiumShown) return;
+        const finishers = Object.values(this.remotePlayers).filter(player =>
+            player.finished && Number.isFinite(player.finishElapsedMs)
+        );
+        if (finishers.length !== 1) return;
+
+        const opponent = finishers[0];
+        const results = [
+            { id: this.playerId, nick: this.playerNick, elapsed: this.finishElapsedMs },
+            { id: opponent.id, nick: opponent.nick || 'PILOTO', elapsed: opponent.finishElapsedMs }
+        ].sort((a, b) => a.elapsed - b.elapsed || a.id.localeCompare(b.id));
+
+        this.finishPlace = results[0].id === this.playerId ? 1 : 2;
+        this.championNick = results[0].nick;
+        if (this.finishPlace === 1) this.baseScore += this.scoreRules.firstPlace;
         this.finalScoreData = this.computeFinalScore();
-
-        this.playChampionAnimation();
-
-        // Depois da tela de CAMPEÃO, mostra a pontuação final.
+        this.podiumShown = true;
+        this.playChampionAnimation(this.finishPlace, this.championNick);
         this.time.delayedCall(2600, () => this.showScorePanel());
     }
 
@@ -1061,7 +1483,7 @@ class Race extends Phaser.Scene {
             : d.multiplier > 1 ? '#00e5ff' : '#9fb3c8';
 
         // Esconde a tela de CAMPEÃO.
-        [this.championPanel, this.championText, this.championSubtext]
+        [this.championOverlay, this.championPanel, this.championText, this.championSubtext]
             .forEach(o => o.setVisible(false));
 
         // O minimapa sai de cena enquanto a pontuação aparece.
@@ -1361,7 +1783,17 @@ class Race extends Phaser.Scene {
         );
     }
 
-    playChampionAnimation() {
+    playChampionAnimation(place, championNick) {
+        const isWinner = place === 1;
+        this.championText
+            .setText(isWinner ? 'CAMPEÃO!' : '2º LUGAR')
+            .setFontSize(this.scale.width < 500 ? 32 : 48)
+            .setColor(isWinner ? '#00e5ff' : '#ffe066');
+        this.championSubtext.setText(isWinner
+            ? '1º LUGAR • VOCÊ VENCEU'
+            : `CAMPEÃO: ${championNick}`);
+        this.championPanel.setStrokeStyle(3, isWinner ? 0x00e5ff : 0xffe066);
+
         const show = [
             this.championOverlay, this.championPanel,
             this.championText, this.championSubtext
@@ -1391,6 +1823,10 @@ class Race extends Phaser.Scene {
         });
 
         this.championConfetti.forEach((piece, i) => {
+            if (!isWinner) {
+                piece.setVisible(false);
+                return;
+            }
             piece.setPosition(Phaser.Math.Between(20, this.scale.width - 20), -20);
             piece.setRotation(Phaser.Math.FloatBetween(-1, 1));
             piece.setVisible(true);
@@ -1425,6 +1861,17 @@ class Race extends Phaser.Scene {
         this.playerNickLabel = push(this.add.text(x, y - 5, `PILOTO: ${this.playerNick}`, {
             fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#00e5ff'
         }).setScrollFactor(0).setDepth(2004));
+
+        this.roomStatusLabel = push(this.add.text(this.scale.width / 2, this.scale.height * 0.76, 'CONECTANDO À SALA...', {
+            fontFamily: 'monospace',
+            fontSize: this.scale.width < 600 ? '12px' : '15px',
+            fontStyle: 'bold',
+            color: '#ffffff',
+            backgroundColor: '#05060acc',
+            padding: { left: 12, right: 12, top: 8, bottom: 8 },
+            align: 'center',
+            wordWrap: { width: this.scale.width - 36 }
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(2602));
 
         this.raceTimerTitle = push(this.add.text(timerX - 75, timerY + 7, 'TIME', {
             fontFamily: 'monospace', fontSize: '10px', fontStyle: 'bold', color: '#8da7c7'
@@ -1720,7 +2167,10 @@ class Race extends Phaser.Scene {
                 && this.physics.overlap(this.car, this.oilSensors);
             this.car.update(time, delta);
             this.sortObstacleDepth();
+            this.publishNetworkState();
         }
+        this.updateRemotePlayers(delta);
+        this.tryCoordinateStart();
         this.checkBoostPlates(time);
         this.checkCheckpointFallback();
         this.updateLapSystem();

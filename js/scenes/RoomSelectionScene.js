@@ -13,6 +13,7 @@ class RoomSelectionScene extends Phaser.Scene {
 
     create(data = {}) {
         this.playerNick = data.playerNick || this.getSavedNickname() || 'PILOTO';
+        this.playerId = data.playerId || this.getPlayerId();
         this.selectedRoom = 1;
         this.roomCards = [];
         const { width, height } = this.scale;
@@ -113,8 +114,22 @@ class RoomSelectionScene extends Phaser.Scene {
     confirmSelection() {
         this.scene.start('CarSelection', {
             playerNick: this.playerNick,
+            playerId: this.playerId,
             roomId: this.selectedRoom
         });
+    }
+
+    getPlayerId() {
+        try {
+            let id = localStorage.getItem('cyberlinePlayerId');
+            if (!id) {
+                id = (window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : '') || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+                localStorage.setItem('cyberlinePlayerId', id);
+            }
+            return id;
+        } catch (_) {
+            return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
     }
 
     getSavedNickname() {
