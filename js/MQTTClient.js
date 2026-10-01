@@ -100,8 +100,12 @@ export default class MQTTClient {
                 this.emit('status', 'ERRO DE REDE');
             });
 
-            this.client.on('message', (topic, buffer) => {
+            this.client.on('message', (topic, buffer, packet) => {
                 if (topic === this.playerTopic) return;
+                // Mensagens retidas são estados antigos (posição da corrida
+                // anterior): criavam o carro rival em lugar errado. O fluxo
+                // ao vivo (30 Hz) já entrega o estado atual.
+                if (packet && packet.retain) return;
                 try {
                     const state = JSON.parse(buffer.toString());
                     if (!state || state.id === this.playerId) return;

@@ -264,7 +264,7 @@ class Race extends Phaser.Scene {
         if (!this.multiplayer || !this.multiplayer.connected || !this.car) return;
 
         const now = performance.now();
-        if (!force && now - this.lastNetworkSend < this.networkSendInterval) return;
+        if (!force && now - this.lastNetworkSend < this.networkSendInterval - 3) return;
         this.lastNetworkSend = now;
 
         this.multiplayer.publish({
@@ -278,13 +278,15 @@ class Race extends Phaser.Scene {
             startAt: this.raceStartAt,
             finished: this.raceFinished,
             finishElapsedMs: this.finishElapsedMs,
-            x: this.car.x,
-            y: this.car.y,
-            rotation: this.car.rotation,
-            vx: this.car.body?.velocity?.x || 0,
-            vy: this.car.body?.velocity?.y || 0,
-            speed: this.car.body?.speed || 0,
-            angularVelocity: this.car.body?.angularVelocity || 0,
+            // Durante a queda (CarDropIn) o carro está no ar e encolhido:
+            // publica a posição final da largada, não a do tween.
+            x: this.localCarReady ? this.car.x : this.networkStartX,
+            y: this.localCarReady ? this.car.y : this.networkStartY,
+            rotation: this.localCarReady ? this.car.rotation : -Math.PI / 2,
+            vx: this.localCarReady ? (this.car.body?.velocity?.x || 0) : 0,
+            vy: this.localCarReady ? (this.car.body?.velocity?.y || 0) : 0,
+            speed: this.localCarReady ? (this.car.body?.speed || 0) : 0,
+            angularVelocity: this.localCarReady ? (this.car.body?.angularVelocity || 0) : 0,
             controls: this.car.networkControls,
             turboActive: this.car.isTurboActive,
             turboIntensity: this.car.turboIntensity,
@@ -337,8 +339,6 @@ class Race extends Phaser.Scene {
                 if (existingRemote.startAt !== null && this.playerId.localeCompare(state.id) > 0) {
                     this.raceStartAt = existingRemote.startAt - smoothedOffset;
                 }
-                existingRemote.snapshots.length = 0;
-                existingRemote.lastNetworkTs = 0;
             }
             this.pendingClockProbes.delete(response.nonce);
         }
@@ -353,15 +353,14 @@ class Race extends Phaser.Scene {
         if (!remote) {
             const remoteSlot = MQTTClient.slotFor(state.id);
             const baseY = this.networkStartY - (this.playerSlot === 0 ? -58 : 58);
-            const initialX = Number.isFinite(Number(state.x)) ? Number(state.x) : this.networkStartX;
-            const initialY = Number.isFinite(Number(state.y))
-                ? Number(state.y)
-                : baseY + (remoteSlot === 0 ? -58 : 58);
+            const initialX = this.networkStartX;
+            const initialY = baseY + (remoteSlot === 0 ? -58 : 58);
             const tint = Number.isFinite(state.tint) ? state.tint : 0x00e5ff;
             const sprite = this.physics.add.image(initialX, initialY, 'carro')
                 .setTint(tint)
                 .setDepth(999)
-                .setVisible(true);
+                .setVisible(false);
+            sprite.setRotation(-Math.PI / 2);
             sprite.body.setCircle(24, 25.5, 56);
             sprite.body.setImmovable(true);
             sprite.body.setAllowGravity(false);
@@ -375,7 +374,7 @@ class Race extends Phaser.Scene {
                 color: '#ffffff',
                 backgroundColor: '#05060acc',
                 padding: { left: 4, right: 4, top: 2, bottom: 2 }
-            }).setOrigin(0.5, 1).setDepth(1001);
+            }).setOrigin(0.5, 1).setDepth(1001).setVisible(false);
 
             remote = this.remotePlayers[state.id] = {
                 id: state.id,
@@ -396,6 +395,9 @@ class Race extends Phaser.Scene {
                 networkControls: null,
                 snapshots: [],
                 lastNetworkTs: 0,
+                offsetSamples: [],
+                timeOffset: null,
+                shown: false,
                 lastSeen: Date.now()
             };
 
@@ -411,6 +413,8 @@ class Race extends Phaser.Scene {
             remote.startAt = null;
             remote.snapshots = [];
             remote.lastNetworkTs = 0;
+            remote.offsetSamples = [];
+            remote.timeOffset = null;
         }
         remote.sessionId = state.sessionId || remote.sessionId;
         remote.online = true;
@@ -432,6 +436,16 @@ class Race extends Phaser.Scene {
         }
 
         const networkTs = Number(state.ts) || Date.now();
+        // Mapeia o relógio do rival para o local usando o MENOR atraso
+        // observado numa janela de 4s (independe das sondas de relógio, que
+        // antes zeravam o buffer e deslocavam todos os snapshots).
+        const arrival = Date.now();
+        remote.offsetSamples.push({ t: arrival, v: arrival - networkTs });
+        while (remote.offsetSamples.length && arrival - remote.offsetSamples[0].t > 4000) remote.offsetSamples.shift();
+        const targetOffset = Math.min(...remote.offsetSamples.map(o => o.v));
+        remote.timeOffset = remote.timeOffset === null
+            ? targetOffset
+            : remote.timeOffset + (targetOffset - remote.timeOffset) * 0.05;
         if (Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y))
             && networkTs > remote.lastNetworkTs) {
             remote.snapshots.push({
@@ -445,7 +459,7 @@ class Race extends Phaser.Scene {
                 turboActive: state.turboActive === true,
                 drifting: state.drifting === true,
                 controls: state.controls || null,
-                receivedAt: networkTs - remote.clockOffset
+                receivedAt: networkTs + remote.timeOffset
             });
             remote.lastNetworkTs = networkTs;
             if (remote.snapshots.length > 12) remote.snapshots.shift();
@@ -462,6 +476,13 @@ class Race extends Phaser.Scene {
         if (remote.label.text !== labelText) remote.label.setText(labelText);
         remote.sprite.setTint(state.turboActive ? 0xff5577 : remote.tint);
         remote.sprite.setScale(1 + remote.turboIntensity * 0.045);
+        if (!remote.shown && remote.ready && remote.snapshots.length) {
+            remote.shown = true;
+            const f = remote.snapshots[remote.snapshots.length - 1];
+            remote.sprite.setPosition(f.x, f.y).setRotation(f.rotation).setVisible(true);
+            remote.sprite.body.reset(f.x, f.y);
+            remote.label.setVisible(true);
+        }
         this.updateLobbyStatus();
         this.tryCoordinateStart();
         this.tryResolvePodium();
@@ -477,9 +498,9 @@ class Race extends Phaser.Scene {
             }
 
             const snapshots = remote.snapshots;
-            if (!snapshots.length) return;
+            if (!snapshots.length || !remote.shown) return;
 
-            const bufferMs = Phaser.Math.Clamp(Math.max(45, remote.roundTripMs * 0.65), 45, 120);
+            const bufferMs = 100;
             const renderAt = Date.now() - bufferMs;
             while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) snapshots.shift();
             const first = snapshots[0];
@@ -499,7 +520,7 @@ class Race extends Phaser.Scene {
                 rotation = first.rotation + angleDelta * alpha;
             } else {
                 const latest = snapshots[snapshots.length - 1];
-                const extrapolateSeconds = Math.min(90, Math.max(0, renderAt - latest.receivedAt)) / 1000;
+                const extrapolateSeconds = Math.min(120, Math.max(0, renderAt - latest.receivedAt)) / 1000;
                 x = latest.x + latest.vx * extrapolateSeconds;
                 y = latest.y + latest.vy * extrapolateSeconds;
                 rotation = latest.rotation + latest.angularVelocity * (Math.PI / 180) * extrapolateSeconds;
@@ -507,6 +528,7 @@ class Race extends Phaser.Scene {
 
             remote.sprite.setPosition(x, y);
             remote.sprite.rotation = rotation;
+            remote.sprite.body.updateFromGameObject();
 
             remote.label.setPosition(remote.sprite.x, remote.sprite.y - 82);
         });
@@ -567,26 +589,33 @@ class Race extends Phaser.Scene {
 
     alignStartingCars(opponent) {
         if (!this.localCarReady || this.startSlotsAppliedTo === opponent.id) return;
-
-        const localSlot = this.playerId.localeCompare(opponent.id) < 0 ? 0 : 1;
-        const remoteSlot = 1 - localSlot;
-        const localY = this.startLineY + (localSlot === 0 ? -58 : 58);
-        const remoteY = this.startLineY + (remoteSlot === 0 ? -58 : 58);
-
-        this.playerSlot = localSlot;
-        this.networkStartY = localY;
         this.startSlotsAppliedTo = opponent.id;
-        this.car.setPosition(this.networkStartX, localY);
-        this.car.body.reset(this.networkStartX, localY);
-        this.car.setAngle(-90);
-        this.previousCarX = this.car.x;
 
-        const remote = this.remotePlayers[opponent.id];
-        if (!remote) return;
-        remote.sprite.setPosition(this.networkStartX, remoteY);
-        remote.sprite.body.reset(this.networkStartX, remoteY);
-        remote.snapshots.length = 0;
-        remote.collider.active = false;
+        // Só há ajuste se os dois caíram na mesma faixa; o de id maior
+        // troca de faixa (deslizando, sem teleporte). O rival publica a
+        // própria posição, então nada é forçado no sprite remoto.
+        const localSlot0 = MQTTClient.slotFor(this.playerId);
+        const remoteSlot0 = MQTTClient.slotFor(opponent.id);
+        let localSlot = localSlot0;
+        if (localSlot0 === remoteSlot0 && this.playerId.localeCompare(opponent.id) > 0) {
+            localSlot = 1 - localSlot0;
+        }
+        this.playerSlot = localSlot;
+        const localY = this.startLineY + (localSlot === 0 ? -58 : 58);
+        if (Math.abs(this.car.y - localY) < 1) return;
+        this.networkStartY = localY;
+        this.car.body.setVelocity(0, 0);
+        this.tweens.add({
+            targets: this.car,
+            y: localY,
+            duration: 350,
+            ease: 'Sine.easeInOut',
+            onUpdate: () => this.car.body.reset(this.car.x, this.car.y),
+            onComplete: () => {
+                this.car.body.reset(this.networkStartX, localY);
+                this.car.setAngle(-90);
+            }
+        });
     }
 
     tryCoordinateStart() {
