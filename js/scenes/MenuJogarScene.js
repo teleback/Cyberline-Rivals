@@ -39,7 +39,7 @@ class MenuJogar extends Phaser.Scene {
         // Controle: um pequeno atraso evita que o mesmo aperto da tela
         // anterior já dispare o JOGAR.
         this.time.delayedCall(400, () => {
-            onAnyButton(this, () => this.scene.start('CarSelection'));
+            onAnyButton(this, () => this.scene.start('Nickname'));
         });
     }
 }

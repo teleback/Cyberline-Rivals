@@ -75,7 +75,7 @@ class NicknameScene extends Phaser.Scene {
             }
             const safeNick = nick.slice(0, 16);
             try { localStorage.setItem('cyberlinePlayerNick', safeNick); } catch (_) {}
-            this.scene.start('CarSelection', { playerNick: safeNick });
+            this.scene.start('RoomSelection', { playerNick: safeNick });
         };
 
         button.addEventListener('click', continueToCars);

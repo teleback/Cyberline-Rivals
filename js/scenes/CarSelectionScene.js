@@ -18,6 +18,7 @@ class CarSelectionScene extends Phaser.Scene {
 
     create(data = {}) {
         this.playerNick = data.playerNick || 'PILOTO';
+        this.roomId = Number.isInteger(data.roomId) ? data.roomId : 1;
         const { width, height } = this.scale;
 
         this.cameras.main.setBackgroundColor('#05060a');
@@ -34,7 +35,7 @@ class CarSelectionScene extends Phaser.Scene {
             strokeThickness: 1
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, height * 0.145, `PILOTO: ${this.playerNick}`, {
+        this.add.text(width / 2, height * 0.145, `PILOTO: ${this.playerNick}  •  SALA ${String(this.roomId).padStart(2, '0')}`, {
             fontFamily: 'monospace',
             fontSize: '13px',
             color: '#00e5ff'
@@ -127,7 +128,7 @@ class CarSelectionScene extends Phaser.Scene {
 
     confirmSelection() {
         const car = this.cars[this.selected];
-        this.scene.start('Preloader', { carSkin: car.id, carTint: car.tint, playerNick: this.playerNick });
+        this.scene.start('Preloader', { carSkin: car.id, carTint: car.tint, playerNick: this.playerNick, roomId: this.roomId });
     }
 }
 
