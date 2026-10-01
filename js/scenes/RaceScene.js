@@ -2,6 +2,7 @@ import Car from '../objects/Car.js';
 import TurboFX from '../fx/TurboFX.js';
 import OilFX from '../fx/OilFX.js';
 import TurboAudio from '../fx/TurboAudio.js';
+import EngineAudio from '../fx/EngineAudio.js';
 import CarDropIn from '../fx/CarDropIn.js';
 import StartCountdown from '../fx/StartCountdown.js';
 import CarFX from '../fx/CarFX.js';
@@ -139,6 +140,9 @@ class Race extends Phaser.Scene {
         this.fx = new TurboFX(this, this.car);
         this.carFX = new CarFX(this, this.car);
         this.audio = new TurboAudio(this.car);
+        // Motor + freio/derrapagem (loops do mp3 + síntese). Só lê o carro.
+        this.engineAudio = new EngineAudio(this, this.car);
+        this.events.once('shutdown', () => this.engineAudio && this.engineAudio.destroy());
         this.createObstacles();
         this.createOilZones();
 
@@ -295,7 +299,12 @@ class Race extends Phaser.Scene {
         // Só o barril azul. Corpo de colisão em círculo (mais barato que
         // retângulo aqui e não precisa se preocupar com rotação do
         // sprite).
-        const kind = { key: 'barril', w: 48, h: 96, radius: 16 };
+        // O desenho do barril ocupa x=3..44, y=24..92 do frame 48x96
+        // (centro em ~23.5, 58). O círculo antigo (raio 16 no centro do
+        // frame) cobria só uma fatia pequena e ficava ~10px acima do
+        // desenho, então o carro entrava no barril. Agora ele cobre a
+        // largura toda do barril.
+        const kind = { key: 'barril', cx: 23.5, cy: 58, radius: 20 };
 
         this.obstacles = this.physics.add.staticGroup();
 
@@ -304,11 +313,14 @@ class Race extends Phaser.Scene {
             obstacle.setDepth(500);
             obstacle.body.setCircle(
                 kind.radius,
-                kind.w / 2 - kind.radius,
-                kind.h / 2 - kind.radius
+                kind.cx - kind.radius,
+                kind.cy - kind.radius
             );
             obstacle.refreshBody();
             obstacle.hitCooldownUntil = 0;
+            // Ponto do chão onde o barril "pisa" (base do desenho). Usado
+            // pra decidir se o carro está na frente ou atrás dele.
+            obstacle.groundY = spot.y + (92 - 48);
         });
 
         // Um collider só (com callback), do mesmo jeito que a colisão com
@@ -316,6 +328,27 @@ class Race extends Phaser.Scene {
         // duas vezes e disparariam o efeito em dobro.
         this.physics.add.collider(this.car, this.obstacles, (car, obstacle) => {
             this.onObstacleHit(obstacle);
+        });
+    }
+
+    // Ordem de desenho barril x carro (top-down com barril "em pé"):
+    // se o carro está ATRÁS do barril (mais pra cima na tela), o barril
+    // desenha por cima; se está na frente (mais pra baixo), o carro
+    // desenha por cima. Sem isso o carro sempre ficava por cima do barril
+    // (depth 500 < 1000), mesmo passando por trás dele.
+    // 1010 fica acima do carro (1000) e das partículas dele (<=1002), e
+    // abaixo do HUD/pontuação (>=1090).
+    sortObstacleDepth() {
+        if (!this.obstacles) return;
+        const carY = this.car.y;
+        this.obstacles.getChildren().forEach((obstacle) => {
+            // só mexe quando o carro está por perto (barato)
+            if (Math.abs(this.car.x - obstacle.x) > 220) {
+                if (obstacle.depth !== 500) obstacle.setDepth(500);
+                return;
+            }
+            const depth = carY < obstacle.groundY ? 1010 : 500;
+            if (obstacle.depth !== depth) obstacle.setDepth(depth);
         });
     }
 
@@ -381,13 +414,25 @@ class Race extends Phaser.Scene {
 
         const oilFxSpots = [];
 
+        // Área que realmente ativa o óleo, medida em cima do que aparece
+        // desenhado em cada textura (a mancha não preenche o quadrado todo).
+        // Antes o sensor era um quadrado 60x60 igual pras duas, bem mais
+        // alto que a mancha — o óleo pegava onde não tinha nada e, com a
+        // física do carro deslocada, falhava onde tinha. dx/dy alinham o
+        // sensor ao centro real da mancha.
+        const oilHit = {
+            zonaoleo:  { w: 62, h: 38, dx: -1, dy: 3 },
+            zonaoleo2: { w: 69, h: 37, dx: -1, dy: -1 }
+        };
+
         oilSpots.forEach((spot) => {
             const puddle = this.add.image(spot.x, spot.y, spot.tex);
             puddle.setDisplaySize(84, 84);
             puddle.setAlpha(0.92);
             this.oilVisuals.add(puddle);
 
-            const sensor = this.add.rectangle(spot.x, spot.y, 60, 60);
+            const hit = oilHit[spot.tex];
+            const sensor = this.add.rectangle(spot.x + hit.dx, spot.y + hit.dy, hit.w, hit.h);
             sensor.setVisible(false);
             this.physics.add.existing(sensor, true);
             this.oilSensors.add(sensor);
@@ -930,6 +975,7 @@ class Race extends Phaser.Scene {
 
         // Para o carro exatamente ao cruzar a chegada.
         this.car.controlsEnabled = false;
+        if (this.engineAudio) this.engineAudio.fadeOut();
         this.car.setVelocity(0, 0);
         this.car.body.setAcceleration(0, 0);
         this.car.setAngularVelocity(0);
@@ -1662,6 +1708,7 @@ class Race extends Phaser.Scene {
             this.car.isOnOil = !!this.oilSensors
                 && this.physics.overlap(this.car, this.oilSensors);
             this.car.update(time, delta);
+            this.sortObstacleDepth();
         }
         this.checkBoostPlates(time);
         this.checkCheckpointFallback();
@@ -1672,6 +1719,7 @@ class Race extends Phaser.Scene {
         // entra por cima quando turbo/drift/superaquecimento estão de fora.
         if (this.oilFX) this.oilFX.update(time, delta);
         if (this.audio) this.audio.update();
+        if (this.engineAudio) this.engineAudio.update();
         if (this.turboBarFill) this.updateHud();
         this.updateRaceTimerHud();
         this.updateMinimap();

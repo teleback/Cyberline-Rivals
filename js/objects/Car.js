@@ -24,7 +24,20 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // colisão junto com o sprite: um retângulo fixo desalinharia da
         // silhueta real do carro conforme ele vira; um círculo tem a mesma
         // forma em qualquer ângulo.
-        this.body.setCircle(14, 18, 20);
+        // ATUALIZAÇÃO: o sprite agora é 102x166 (não mais 64x64) e o desenho
+        // do carro ocupa x=18..81, y=21..139 do frame (centro em ~49.5, 80).
+        // O círculo antigo (raio 14, offset 18/20) ficava ~46px ACIMA e ~17px
+        // à ESQUERDA do carro de verdade — por isso o carro "passava por cima"
+        // de barril e de óleo: a física estava em outro lugar. Agora o círculo
+        // é centrado na silhueta. Ajuste CAR_HITBOX_RADIUS se quiser o carro
+        // mais "gordo" (colide antes) ou mais "magro" (folga nas paredes).
+        const CAR_HITBOX_RADIUS = 24;
+        const CAR_CENTER_X = 49.5, CAR_CENTER_Y = 80;
+        this.body.setCircle(
+            CAR_HITBOX_RADIUS,
+            CAR_CENTER_X - CAR_HITBOX_RADIUS,
+            CAR_CENTER_Y - CAR_HITBOX_RADIUS
+        );
 
         // Modo "damping" simula atrito: o carro perde velocidade aos poucos
         // em vez de parar instantaneamente ao soltar a seta.
