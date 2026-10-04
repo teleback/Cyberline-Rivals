@@ -121,10 +121,10 @@ class RoomSelectionScene extends Phaser.Scene {
 
     getPlayerId() {
         try {
-            let id = localStorage.getItem('cyberlinePlayerId');
+            let id = sessionStorage.getItem('cyberlinePlayerId');
             if (!id) {
                 id = (window.crypto && typeof window.crypto.randomUUID === 'function' ? window.crypto.randomUUID() : '') || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-                localStorage.setItem('cyberlinePlayerId', id);
+                sessionStorage.setItem('cyberlinePlayerId', id);
             }
             return id;
         } catch (_) {

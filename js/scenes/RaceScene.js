@@ -18,13 +18,13 @@ class Race extends Phaser.Scene {
         // depois com o multiplayer MQTT.
         this.playerNick = data.playerNick || 'PILOTO';
         this.roomId = Number(data.roomId) || 1;
-        this.multiplayer = new MQTTClient(this, data.playerId);
+        this.multiplayer = new MQTTClient(data.playerId);
         this.playerId = this.multiplayer.playerId;
         this.carSkin = data.carSkin || 'cyan';
         this.carTint = data.carTint || 0x00e5ff;
         this.remotePlayers = {};
         this.lastNetworkSend = 0;
-        this.networkSendInterval = 33; // ~30 atualizações/s
+        this.networkSendInterval = 20; // ~50 atualizações/s; deixa o movimento remoto muito mais contínuo sem exigir 60/s
         this.localCarReady = false;
         this.raceStartAt = null;
         this.startCountdownStarted = false;
@@ -336,6 +336,7 @@ class Race extends Phaser.Scene {
             if (existingRemote) {
                 existingRemote.clockOffset = smoothedOffset;
                 existingRemote.roundTripMs = roundTripMs;
+                existingRemote.interpolationDelayMs = Phaser.Math.Clamp(48 + roundTripMs * 0.20, 58, 88);
                 if (existingRemote.startAt !== null && this.playerId.localeCompare(state.id) > 0) {
                     this.raceStartAt = existingRemote.startAt - smoothedOffset;
                 }
@@ -356,16 +357,16 @@ class Race extends Phaser.Scene {
             const initialX = this.networkStartX;
             const initialY = baseY + (remoteSlot === 0 ? -58 : 58);
             const tint = Number.isFinite(state.tint) ? state.tint : 0x00e5ff;
-            const sprite = this.physics.add.image(initialX, initialY, 'carro')
+            const sprite = this.add.image(initialX, initialY, 'carro')
                 .setTint(tint)
                 .setDepth(999)
                 .setVisible(false);
             sprite.setRotation(-Math.PI / 2);
-            sprite.body.setCircle(24, 25.5, 56);
-            sprite.body.setImmovable(true);
-            sprite.body.setAllowGravity(false);
-            const collider = this.physics.add.collider(this.car, sprite);
-            collider.active = false;
+            // IMPORTANTE: o carro remoto não participa do solver de colisão
+            // do Arcade Physics. Se participasse, o solver poderia deslocá-lo
+            // entre dois snapshots e a rede o colocaria de volta no frame
+            // seguinte, causando o efeito de piscar/teleportar.
+            const collider = null;
 
             const label = this.add.text(0, 0, state.nick || 'RIVAL', {
                 fontFamily: 'monospace',
@@ -391,12 +392,15 @@ class Race extends Phaser.Scene {
                 nick: state.nick || 'RIVAL',
                 clockOffset: this.clockOffsets.get(state.id) || 0,
                 roundTripMs: this.networkRoundTrips.get(state.id) || 0,
+                interpolationDelayMs: 64,
                 turboIntensity: 0,
                 networkControls: null,
                 snapshots: [],
                 lastNetworkTs: 0,
+                lastSequence: 0,
                 offsetSamples: [],
                 timeOffset: null,
+                lastCarHitAt: 0,
                 shown: false,
                 lastSeen: Date.now()
             };
@@ -413,6 +417,7 @@ class Race extends Phaser.Scene {
             remote.startAt = null;
             remote.snapshots = [];
             remote.lastNetworkTs = 0;
+            remote.lastSequence = 0;
             remote.offsetSamples = [];
             remote.timeOffset = null;
         }
@@ -435,19 +440,17 @@ class Race extends Phaser.Scene {
                 : remote.startAt - remote.clockOffset;
         }
 
-        const networkTs = Number(state.ts) || Date.now();
-        // Mapeia o relógio do rival para o local usando o MENOR atraso
-        // observado numa janela de 4s (independe das sondas de relógio, que
-        // antes zeravam o buffer e deslocavam todos os snapshots).
-        const arrival = Date.now();
-        remote.offsetSamples.push({ t: arrival, v: arrival - networkTs });
-        while (remote.offsetSamples.length && arrival - remote.offsetSamples[0].t > 4000) remote.offsetSamples.shift();
-        const targetOffset = Math.min(...remote.offsetSamples.map(o => o.v));
-        remote.timeOffset = remote.timeOffset === null
-            ? targetOffset
-            : remote.timeOffset + (targetOffset - remote.timeOffset) * 0.05;
+        // Para interpolação não precisamos sincronizar o relógio das duas
+        // máquinas. Usar Date.now() do outro computador como eixo temporal
+        // faz o buffer oscilar quando os relógios diferem ou um pacote chega
+        // fora de ordem. A posição deve ser ordenada por `seq` e o tempo de
+        // renderização deve ser SEMPRE o relógio local de recebimento.
+        const sequence = Number(state.seq);
+        const hasSequence = Number.isFinite(sequence) && sequence > 0;
+        if (hasSequence && sequence <= remote.lastSequence) return;
         if (Number.isFinite(Number(state.x)) && Number.isFinite(Number(state.y))
-            && networkTs > remote.lastNetworkTs) {
+            && (!hasSequence || sequence > remote.lastSequence)) {
+            const receivedAt = performance.now();
             remote.snapshots.push({
                 x: Number(state.x),
                 y: Number(state.y),
@@ -459,10 +462,11 @@ class Race extends Phaser.Scene {
                 turboActive: state.turboActive === true,
                 drifting: state.drifting === true,
                 controls: state.controls || null,
-                receivedAt: networkTs + remote.timeOffset
+                receivedAt
             });
-            remote.lastNetworkTs = networkTs;
-            if (remote.snapshots.length > 12) remote.snapshots.shift();
+            remote.lastNetworkTs = Number(state.ts) || remote.lastNetworkTs;
+            if (hasSequence) remote.lastSequence = sequence;
+            if (remote.snapshots.length > 15) remote.snapshots.shift();
         }
 
         if (state.tint !== undefined) remote.tint = Number(state.tint) || 0x00e5ff;
@@ -480,7 +484,6 @@ class Race extends Phaser.Scene {
             remote.shown = true;
             const f = remote.snapshots[remote.snapshots.length - 1];
             remote.sprite.setPosition(f.x, f.y).setRotation(f.rotation).setVisible(true);
-            remote.sprite.body.reset(f.x, f.y);
             remote.label.setVisible(true);
         }
         this.updateLobbyStatus();
@@ -500,27 +503,65 @@ class Race extends Phaser.Scene {
             const snapshots = remote.snapshots;
             if (!snapshots.length || !remote.shown) return;
 
-            const bufferMs = 100;
-            const renderAt = Date.now() - bufferMs;
-            while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) snapshots.shift();
+            // O atraso de renderização é adaptativo: em rede boa fica menor
+            // que os 100 ms originais; com RTT maior aumenta um pouco para
+            // evitar jitter e teleporte visual.
+            const bufferMs = remote.interpolationDelayMs || 82;
+            const renderAt = performance.now() - bufferMs;
+
+            // Mantemos pelo menos um snapshot antes e um depois do instante
+            // que queremos desenhar. Isso evita o efeito de "dois carros"
+            // causado por alternar entre a posição recebida e uma previsão.
+            while (snapshots.length > 2 && snapshots[1].receivedAt <= renderAt) {
+                snapshots.shift();
+            }
+
             const first = snapshots[0];
             const second = snapshots[1] || first;
-            let x, y, rotation;
-            if (renderAt < first.receivedAt) {
-                const extrapolateSeconds = Math.max(-0.06, (renderAt - first.receivedAt) / 1000);
-                x = first.x + first.vx * extrapolateSeconds;
-                y = first.y + first.vy * extrapolateSeconds;
-                rotation = first.rotation + first.angularVelocity * (Math.PI / 180) * extrapolateSeconds;
-            } else if (snapshots.length > 1 && renderAt <= second.receivedAt) {
+            let x = first.x;
+            let y = first.y;
+            let rotation = first.rotation;
+
+            if (snapshots.length > 1 && renderAt >= first.receivedAt && renderAt <= second.receivedAt) {
                 const span = Math.max(1, second.receivedAt - first.receivedAt);
-                const alpha = Phaser.Math.Clamp((renderAt - first.receivedAt) / span, 0, 1);
+                const t = Phaser.Math.Clamp((renderAt - first.receivedAt) / span, 0, 1);
+
+                // Interpolação cúbica de Hermite: além das posições, usa a
+                // velocidade que o piloto enviou. A interpolação linear fazia
+                // o rival chegar em cada snapshot em pequenos "degraus";
+                // Hermite mantém a velocidade contínua entre eles.
+                const dt = span / 1000;
+                const m0x = first.vx * dt;
+                const m0y = first.vy * dt;
+                const m1x = second.vx * dt;
+                const m1y = second.vy * dt;
+                const t2 = t * t;
+                const t3 = t2 * t;
+                const h00 = 2 * t3 - 3 * t2 + 1;
+                const h10 = t3 - 2 * t2 + t;
+                const h01 = -2 * t3 + 3 * t2;
+                const h11 = t3 - t2;
+
+                x = h00 * first.x + h10 * m0x + h01 * second.x + h11 * m1x;
+                y = h00 * first.y + h10 * m0y + h01 * second.y + h11 * m1y;
+
                 const angleDelta = Phaser.Math.Angle.Wrap(second.rotation - first.rotation);
-                x = Phaser.Math.Linear(first.x, second.x, alpha);
-                y = Phaser.Math.Linear(first.y, second.y, alpha);
-                rotation = first.rotation + angleDelta * alpha;
-            } else {
-                const latest = snapshots[snapshots.length - 1];
-                const extrapolateSeconds = Math.min(120, Math.max(0, renderAt - latest.receivedAt)) / 1000;
+                // Rotação também usa uma curva suave, evitando micro-travadas
+                // quando o adversário vira entre dois snapshots.
+                const angular0 = first.angularVelocity * Math.PI / 180 * dt;
+                const angular1 = second.angularVelocity * Math.PI / 180 * dt;
+                const angleCurve = h00 * first.rotation
+                    + h10 * angular0
+                    + h01 * (first.rotation + angleDelta)
+                    + h11 * angular1;
+                rotation = angleCurve;
+            } else if (renderAt > second.receivedAt) {
+                // Se houve perda/jitter, fazemos somente uma previsão curta.
+                // Nunca usamos centenas de ms de extrapolação, que produz
+                // saltos quando o próximo pacote finalmente chega.
+                const latest = second;
+                const extrapolateMs = Phaser.Math.Clamp(renderAt - latest.receivedAt, 0, 35);
+                const extrapolateSeconds = extrapolateMs / 1000;
                 x = latest.x + latest.vx * extrapolateSeconds;
                 y = latest.y + latest.vy * extrapolateSeconds;
                 rotation = latest.rotation + latest.angularVelocity * (Math.PI / 180) * extrapolateSeconds;
@@ -528,7 +569,20 @@ class Race extends Phaser.Scene {
 
             remote.sprite.setPosition(x, y);
             remote.sprite.rotation = rotation;
-            remote.sprite.body.updateFromGameObject();
+            const dx = this.car.x - x;
+            const dy = this.car.y - y;
+            const distanceSq = dx * dx + dy * dy;
+            if (distanceSq < 52 * 52 && now - remote.lastCarHitAt > 180) {
+                remote.lastCarHitAt = now;
+                const distance = Math.sqrt(distanceSq) || 1;
+                const nx = dx / distance;
+                const ny = dy / distance;
+                const localSpeed = this.car.body?.speed || 0;
+                if (localSpeed > 25) {
+                    this.car.body.velocity.x += nx * Math.min(90, localSpeed * 0.22);
+                    this.car.body.velocity.y += ny * Math.min(90, localSpeed * 0.22);
+                }
+            }
 
             remote.label.setPosition(remote.sprite.x, remote.sprite.y - 82);
         });
@@ -669,9 +723,6 @@ class Race extends Phaser.Scene {
     beginRace() {
         if (!this.hasReadyPair() || !this.raceStartAt) return;
         this.roomStatusLabel?.setVisible(false);
-        Object.values(this.remotePlayers).forEach(remote => {
-            if (remote.online && remote.collider) remote.collider.active = true;
-        });
         this.car.controlsEnabled = true;
         this.startRaceTimer();
     }
