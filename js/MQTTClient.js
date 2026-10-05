@@ -3,7 +3,7 @@
 // com eventos, subscribe/publish e um prefixo de tópicos), mas mantém o
 // protocolo específico do Cyberline Rivals: salas, presença e estado da corrida.
 
-const MQTT_URL = 'wss://broker.emqx.io:8084/mqtt';
+const MQTT_URL = 'wss://cyberline-rivals.feira-de-jogos.dev.br/mqtt';
 const MQTT_CDN = 'https://unpkg.com/mqtt@5.14.1/dist/mqtt.min.js';
 const TOPIC_PREFIX = 'cyberline/race';
 const CLIENT_ID_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
