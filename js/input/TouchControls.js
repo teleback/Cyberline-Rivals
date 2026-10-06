@@ -7,8 +7,7 @@
 //  - fica nos cantos da TELA, mesmo quando o jogo (800x450) tem tarjas
 //    pretas nas laterais.
 //
-// A saída tem o mesmo formato do readGamepad() ({ left, right, up, down,
-// turbo }), então o Car só precisa somar mais uma fonte de entrada.
+// Além dos botões, entrega steering (-1..1) para direção proporcional.
 //
 // Mapeamento (igual ao teclado):
 //   joystick ← →    virar
@@ -19,13 +18,16 @@
 // Só aparece em aparelho de toque. Para testar no computador, abra o jogo
 // com ?touch=1 na URL (e ?touch=0 força desligado).
 
-const state = { left: false, right: false, up: false, down: false, turbo: false };
+const state = { left: false, right: false, up: false, down: false, turbo: false, steering: 0 };
 
-// Zona morta do joystick, como fração do raio. O vertical é maior pra
-// virar de lado sem querer acelerar/frear quando o dedo desvia um pouco.
-const DEAD_X = 0.3;
-const DEAD_Y = 0.4;
-const EDGE = 12; // px de folga entre o joystick e a borda da tela
+// Curva progressiva: pequenas correções não viram o volante inteiro.
+const DEAD_X = 0.18;
+// Limiares distintos para ligar/soltar evitam oscilar com o tremor do dedo.
+// Frear exige um gesto maior, para não entrar em drift sem querer na curva.
+const THROTTLE_ON = 0.4;
+const THROTTLE_OFF = 0.25;
+const BRAKE_ON = 0.65;
+const BRAKE_OFF = 0.45;
 
 let touchSeen = false;
 let root = null;
@@ -69,6 +71,7 @@ function clamp(v, min, max) {
 function releaseStick() {
     stickPointer = null;
     state.left = state.right = state.up = state.down = false;
+    state.steering = 0;
     if (knob) knob.style.transform = '';
     if (stick) {
         stick.classList.remove('tc-active');
@@ -91,8 +94,10 @@ function releaseAll() {
 }
 
 function updateStick(e) {
-    let dx = e.clientX - center.x;
-    let dy = e.clientY - center.y;
+    const rawX = e.clientX - center.x;
+    const rawY = e.clientY - center.y;
+    let dx = rawX;
+    let dy = rawY;
     const dist = Math.hypot(dx, dy);
     if (dist > radius) {
         dx *= radius / dist;
@@ -100,12 +105,16 @@ function updateStick(e) {
     }
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
 
-    const nx = dx / radius;
-    const ny = dy / radius;
-    state.left = nx < -DEAD_X;
-    state.right = nx > DEAD_X;
-    state.up = ny < -DEAD_Y;
-    state.down = ny > DEAD_Y;
+    // Limita só o desenho ao círculo. Ler os eixos independentemente evita
+    // perder aceleração quando o dedo se afasta para fazer uma curva.
+    const nx = clamp(rawX / radius, -1, 1);
+    const ny = clamp(rawY / radius, -1, 1);
+    const amount = Math.max(0, (Math.abs(nx) - DEAD_X) / (1 - DEAD_X));
+    state.steering = Math.sign(nx) * Math.pow(amount, 1.5);
+    state.left = state.steering < 0;
+    state.right = state.steering > 0;
+    state.up = ny < -(state.up ? THROTTLE_OFF : THROTTLE_ON);
+    state.down = ny > (state.down ? BRAKE_OFF : BRAKE_ON);
 }
 
 function build() {
@@ -140,9 +149,11 @@ function build() {
 
         radius = stick.offsetWidth / 2;
         const bounds = zone.getBoundingClientRect();
+        // O ponto inicial é sempre neutro, inclusive junto às bordas.
+        // Deslocar o centro para caber o círculo acionava comandos no toque.
         center = {
-            x: clamp(e.clientX, bounds.left + radius + EDGE, bounds.right - radius - EDGE),
-            y: clamp(e.clientY, bounds.top + radius + EDGE, bounds.bottom - radius - EDGE),
+            x: e.clientX,
+            y: e.clientY,
         };
         stick.classList.add('tc-active');
         stick.style.left = `${center.x - radius - bounds.left}px`;
@@ -182,6 +193,8 @@ function build() {
     document.addEventListener('visibilitychange', () => {
         if (document.hidden) releaseAll();
     });
+    // Mudou a orientação/tamanho: as coordenadas do gesto deixam de valer.
+    window.addEventListener('resize', releaseAll);
 }
 
 // ---------------------------------------------------------------------------
@@ -200,14 +213,15 @@ export function hideTouchControls() {
     if (root) root.hidden = true;
 }
 
-/** Estado atual, no mesmo formato do readGamepad(). */
+/** Botões atuais e direção analógica (-1..1). */
 export function readTouch() {
     return {
         left: state.left,
         right: state.right,
+        steering: state.steering,
         // O botão TURBO já acelera: o Car só liga o turbo com o acelerador
         // apertado, e o polegar direito não deve precisar de dois botões.
-        up: state.up || state.turbo,
+        up: (state.up || state.turbo) && !state.down,
         down: state.down,
         turbo: state.turbo,
     };

@@ -142,18 +142,19 @@ export default class TurboFX {
 
         // Ordem importa: deforma -> borra -> colore -> escurece as bordas.
         this.fBarrel = list.addBarrel(1);
-        this.fBlur = list.addBlur(1, 1, 0, 0, 0xffffff, 2);
+        this.fBlur = list.addBlur(0, 1, 0, 0, 0xffffff, 1);
         this.fColor = list.addColorMatrix();
         this.fVignette = list.addVignette(0.5, 0.5, 0.85, 0.35);
 
         this.filters = [this.fBarrel, this.fBlur, this.fColor, this.fVignette];
 
         // Custam GPU mesmo sem efeito nenhum aplicado, então ficam desligados
-        // até o turbo encostar neles. A vinheta é a única sempre viva: um
-        // pouco de escurecimento nas bordas ajuda a leitura o tempo todo.
+        // até o turbo encostar neles. A iluminação noturna já dá contraste
+        // ao cenário; a vinheta também fica desligada fora do turbo.
         this.fBarrel.active = false;
         this.fBlur.active = false;
         this.fColor.active = false;
+        this.fVignette.active = false;
 
         this.colFrom = new Phaser.Display.Color(10, 12, 20);
         this.colTo = new Phaser.Display.Color(255, 45, 85);
@@ -171,10 +172,11 @@ export default class TurboFX {
             speed: { min: 40, max: 140 },
             scale: { start: 0.9, end: 0 },
             alpha: { start: 0.85, end: 0 },
-            tint: [0x00e5ff, 0x64f0ff, 0xff2d55],
+            tint: [0x29cfff, 0x9eefff, 0xff39d4],
             blendMode: 'ADD',
             frequency: 14,
-            quantity: 2,
+            quantity: 1,
+            maxAliveParticles: 80,
             emitting: false
         }).setDepth(990);
 
@@ -185,10 +187,11 @@ export default class TurboFX {
             speed: { min: 120, max: 340 },
             scale: { start: 0.28, end: 0 },
             alpha: { start: 1, end: 0 },
-            tint: [0xffe066, 0xffffff, 0xff8a3d],
+            tint: [0x29cfff, 0xffffff, 0xff39d4],
             blendMode: 'ADD',
             frequency: 26,
             quantity: 1,
+            maxAliveParticles: 40,
             emitting: false
         }).setDepth(991);
 
@@ -301,6 +304,7 @@ export default class TurboFX {
 
         // --- Pós-processamento ---
         if (this.filters) {
+            this.fVignette.active = k > 0.004;
             if (k > 0.004) {
                 this.fBarrel.active = true;
                 this.fBlur.active = true;
@@ -418,7 +422,7 @@ export default class TurboFX {
                 // vira motor.
                 const pulse = 0.82 + 0.18 * Math.sin(time * 0.028);
                 this.carGlow.outerStrength = TUNING.glow * k * pulse;
-                this.carGlow.color = k > 0.6 ? 0xff2d55 : 0x00e5ff;
+                this.carGlow.color = k > 0.6 ? 0xff39d4 : 0x29cfff;
             } else {
                 this.carGlow.outerStrength = 0;
             }
@@ -427,7 +431,7 @@ export default class TurboFX {
         // Tint do carro: drift e turbo disputavam o mesmo canal, então a
         // prioridade é resolvida aqui, num lugar só.
         if (k > 0.45) {
-            car.setTint(0xfff0a8);
+            car.setTint(0xe8e0ff);
         } else if (car.isDrifting) {
             car.setTint(0xff5fa8);
         } else if (car.isOverheated) {

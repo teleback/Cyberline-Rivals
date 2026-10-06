@@ -1,6 +1,8 @@
 import { readGamepad, calibrateIfNeeded } from '../input/GamepadInput.js';
 import { readTouch } from '../input/TouchControls.js';
 
+export const OIL_SETTINGS = { entryRetention: 0.65, speedRetention: 0.22, minDecel: 160, minSpeed: 70 };
+
 export default class Car extends Phaser.Physics.Arcade.Sprite {
     constructor(scene, x, y, texture) {
         super(scene, x, y, texture);
@@ -47,6 +49,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
         this.acceleration = 500;
         this.turnSpeed = 230; // graus por segundo
+        this._touchSteering = 0;
 
         // Aderência dos pneus: fração da velocidade LATERAL (de lado) que
         // sobra depois de 1 segundo. Quanto menor, mais o carro "gruda" na
@@ -146,21 +149,22 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // --- Zona de óleo ---
         // Enquanto o carro está EM CIMA de uma mancha (a RaceScene liga
         // `isOnOil` a cada frame), existe um TETO de velocidade que
-        // começa na velocidade de entrada e vai caindo, mas nunca abaixo
+        // reduz a velocidade na entrada e vai caindo, mas nunca abaixo
         // de `oilMinSpeed`. Resultado: o carro perde velocidade de forma
-        // moderada e perceptível, e continua andando. Não existe deslize:
+        // perceptível, e continua andando. Não existe deslize:
         // grip e direção ficam normais, e o teto só ESCALA o vetor de
         // velocidade (sentido preservado, nunca aumenta). Saiu da mancha
         // -> o teto é descartado no frame seguinte e tudo volta ao normal.
         this.isOnOil = false;
         this._oilSpeedCap = null;
         // Fração do teto que SOBRA após 1s no óleo (perda proporcional).
-        this.oilSpeedRetention = 0.3;
+        this.oilEntryRetention = OIL_SETTINGS.entryRetention;
+        this.oilSpeedRetention = OIL_SETTINGS.speedRetention;
         // Perda fixa extra (px/s²): mantém a freada perceptível também
         // em velocidades mais baixas.
-        this.oilMinDecel = 120;
-        // Piso do teto (px/s, ~34 km/h no HUD): o óleo nunca para o carro.
-        this.oilMinSpeed = 80;
+        this.oilMinDecel = OIL_SETTINGS.minDecel;
+        // Piso do teto (px/s, ~29 km/h no HUD): o óleo nunca para o carro.
+        this.oilMinSpeed = OIL_SETTINGS.minSpeed;
     }
 
     /** Velocidade em "km/h" só pra leitura no HUD. */
@@ -170,6 +174,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
     update(time, delta) {
         if (!this.controlsEnabled) {
+            this._touchSteering = 0;
             this.setVelocity(0, 0);
             this.setAngularVelocity(0);
             this.networkControls = {
@@ -193,6 +198,17 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const up = { isDown: this.cursors.up.isDown || pad.up || touch.up };
         const down = { isDown: this.cursors.down.isDown || pad.down || touch.down };
         const seconds = delta / 1000;
+        // Suavização curta e independente do FPS, só para o joystick mobile.
+        // Soltar/centralizar zera imediatamente para não continuar virando.
+        if (touch.steering === 0) {
+            this._touchSteering = 0;
+        } else {
+            this._touchSteering += (touch.steering - this._touchSteering)
+                * (1 - Math.exp(-18 * seconds));
+        }
+        const digitalLeft = this.cursors.left.isDown || pad.left;
+        const digitalRight = this.cursors.right.isDown || pad.right;
+        const steering = digitalLeft ? -1 : digitalRight ? 1 : this._touchSteering;
 
         // Vetor apontando pra onde o nariz do carro está virado. Serve pro
         // freio/ré, pro drift e pro empurrão do turbo.
@@ -223,13 +239,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // (tem custo) em vez de só andar mais.
         turnFactor *= 1 - 0.28 * this.turboSpool;
 
-        if (left.isDown) {
-            this.setAngularVelocity(-this.turnSpeed * turnFactor);
-        } else if (right.isDown) {
-            this.setAngularVelocity(this.turnSpeed * turnFactor);
-        } else {
-            this.setAngularVelocity(0);
-        }
+        this.setAngularVelocity(steering * this.turnSpeed * turnFactor);
 
         if (up.isDown) {
             // A imagem do carro1 aponta "pra cima" por padrão, por isso o
@@ -357,8 +367,8 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
     /**
      * Desaceleração da zona de óleo, aplicada todo frame em que o carro
-     * está sobre a mancha. Mantém um teto de velocidade que nasce na
-     * velocidade de entrada e cai (proporcional + fixo) até no mínimo
+     * está sobre a mancha. Mantém um teto de velocidade que já começa
+     * reduzido na entrada e cai (proporcional + fixo) até no mínimo
      * `oilMinSpeed`; se o carro estiver acima do teto, o vetor de
      * velocidade é escalado até ele. Como o piso é maior que zero, o
      * carro nunca fica parado (e um carro parado ainda consegue sair do
@@ -369,7 +379,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const speed = this.body.velocity.length();
 
         if (this._oilSpeedCap === null) {
-            this._oilSpeedCap = Math.max(speed, this.oilMinSpeed);
+            this._oilSpeedCap = Math.max(speed * this.oilEntryRetention, this.oilMinSpeed);
         }
 
         this._oilSpeedCap = Math.max(

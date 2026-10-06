@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="288" viewBox="0 0 64 96">
+  <defs>
+    <linearGradient id="metal" x2="0" y2="1">
+      <stop stop-color="#192c48"/><stop offset=".48" stop-color="#080f23"/><stop offset="1" stop-color="#151c35"/>
+    </linearGradient>
+    <linearGradient id="neon">
+      <stop stop-color="#29cfff"/><stop offset=".45" stop-color="#7feaff"/>
+      <stop offset=".62" stop-color="#bdb0ff"/><stop offset="1" stop-color="#ff40c8"/>
+    </linearGradient>
+    <linearGradient id="arrow">
+      <stop stop-color="#1acbff"/><stop offset=".5" stop-color="#a2eaff"/><stop offset="1" stop-color="#ff40c8"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.1"/>
+    </filter>
+    <path id="shell" d="M10 3H54L61 10V86L54 93H10L3 86V10Z"/>
+    <path id="arrows" d="M13 32L32 20L51 32V39L32 27L13 39Z M13 51L32 39L51 51V58L32 46L13 58Z M13 70L32 58L51 70V77L32 65L13 77Z"/>
+  </defs>
+  <use href="#shell" fill="#020712" stroke="#02040c" stroke-width="3"/>
+  <use href="#shell" fill="url(#metal)" stroke="url(#neon)" stroke-width="1.5"/>
+  <path d="M12 8H52L56 12V84L52 88H12L8 84V12Z" fill="#060d1c" stroke="#30405c" stroke-width=".8"/>
+  <path d="M12 16H52 M12 82H52 M15 43H49 M15 62H49" stroke="#16304a" stroke-width=".6"/>
+  <path d="M6 16V39M6 53V80M10 5H23 M3 44H9 M3 49H9" fill="none" stroke="#29d6ff" stroke-width="1.7"/>
+  <path d="M58 16V39M58 53V80M41 5H54 M55 44H61 M55 49H61" fill="none" stroke="#ff40c8" stroke-width="1.7"/>
+  <use href="#arrows" fill="url(#arrow)" opacity=".65" filter="url(#glow)"/>
+  <use href="#arrows" fill="url(#arrow)"/>
+  <path d="M15 31L32 21L49 31 M15 50L32 40L49 50 M15 69L32 59L49 69" fill="none" stroke="#d7f7ff" stroke-width=".7" opacity=".7"/>
+  <path d="M13 11H22 M26 11H30 M34 11H38 M42 11H51" stroke="url(#neon)" stroke-width="2"/>
+  <path d="M14 85H24 M28 85H36 M40 85H50" stroke="url(#neon)" stroke-width="1.5"/>
+  <path d="M10 19V24 M10 73V78 M54 19V24 M54 73V78" stroke="#69768e" stroke-width="1"/>
+  <g fill="#c8e5ff">
+    <circle cx="8" cy="10" r="1"/><circle cx="56" cy="10" r="1"/>
+    <circle cx="8" cy="86" r="1"/><circle cx="56" cy="86" r="1"/>
+  </g>
+</svg>

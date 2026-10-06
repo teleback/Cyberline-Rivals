@@ -12,6 +12,14 @@
  * então o JS continua escrevendo num lugar só.
  */
 
+@font-face {
+    font-family: 'Cyber Arcade';
+    src: url('./assets/fonts/PressStart2P-Regular.ttf') format('truetype');
+    font-style: normal;
+    font-weight: 400;
+    font-display: swap;
+}
+
 html,
 body {
     margin: 0;
@@ -63,7 +71,7 @@ body {
 
 #touch-controls {
     --tc-size: clamp(120px, 30vmin, 180px);   /* diâmetro do joystick */
-    --tc-turbo: clamp(84px, 21vmin, 120px);   /* diâmetro do botão turbo */
+    --tc-turbo: clamp(68px, 17vmin, 96px);    /* botão compacto, área de toque confortável */
     --tc-edge: clamp(14px, 4vmin, 36px);      /* distância da borda da tela */
     position: fixed;
     inset: 0;
@@ -124,17 +132,19 @@ body {
     bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tc-edge));
     width: var(--tc-turbo);
     height: var(--tc-turbo);
-    border-radius: 50%;
+    border-radius: 24%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: clamp(13px, 3.4vmin, 18px);
-    font-weight: bold;
-    letter-spacing: 1px;
-    color: #ff7aa0;
-    border: 2px solid #ff2d55;
-    background: radial-gradient(circle, rgba(255, 45, 85, 0.22), rgba(255, 45, 85, 0.05) 70%);
-    box-shadow: 0 0 18px rgba(255, 45, 85, 0.3), inset 0 0 18px rgba(255, 45, 85, 0.15);
+    font-family: 'Cyber Arcade', monospace;
+    font-size: clamp(8px, 2vmin, 12px);
+    font-weight: normal;
+    letter-spacing: 0;
+    color: #a9e5ff;
+    border: 2px solid #ff39d4;
+    background: linear-gradient(135deg, rgba(41, 207, 255, 0.12), rgba(255, 57, 212, 0.17));
+    box-shadow: 0 0 12px rgba(255, 57, 212, 0.25), inset 0 0 10px rgba(41, 207, 255, 0.12);
+    transition: background 100ms, box-shadow 100ms, color 100ms;
     opacity: 0.7;
     pointer-events: auto;
     touch-action: none;
@@ -142,8 +152,8 @@ body {
 #touch-controls .tc-turbo.tc-active {
     opacity: 1;
     color: #fff;
-    background: radial-gradient(circle, rgba(255, 45, 85, 0.65), rgba(255, 45, 85, 0.2) 70%);
-    box-shadow: 0 0 34px rgba(255, 45, 85, 0.85), inset 0 0 18px rgba(255, 45, 85, 0.4);
+    background: linear-gradient(135deg, rgba(41, 207, 255, 0.3), rgba(255, 57, 212, 0.45));
+    box-shadow: 0 0 20px rgba(255, 57, 212, 0.55), inset 0 0 12px rgba(41, 207, 255, 0.3);
 }
 
 /* --- Aviso "gire o celular" ---------------------------------------------- */

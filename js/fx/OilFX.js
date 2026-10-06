@@ -16,13 +16,13 @@
  *      - Tremidinha de câmera bem leve, proporcional à velocidade.
  *
  *   2. ENQUANTO ESTÁ NA MANCHA
- *      - Gotas escuras espirradas pelas rodas (mais gotas quanto mais
+ *      - Gotas roxas espirradas pelas rodas (mais gotas quanto mais
  *        rápido o carro entra).
- *      - Reflexos ciano/magenta/violeta, na paleta do jogo.
+ *      - Reflexos violetas e uma borda roxa luminosa.
  *
  *   3. DEPOIS DE SAIR (a "película" de óleo escorrendo)
  *      - `coat` (0..1) sobe rápido ao entrar e desce devagar ao sair.
- *        Ela escurece o carro suavemente e controla o rastro escuro que
+ *        Ela tinge o carro suavemente e controla o rastro violeta que
  *        as rodas traseiras deixam no asfalto. O rastro é por DISTÂNCIA
  *        percorrida, então carro parado não deixa nada.
  *
@@ -41,8 +41,8 @@ const TUNING = {
     // Película de óleo
     coatRise: 10,        // velocidade com que sobe (por segundo)
     coatFall: 2.2,       // velocidade com que escorre (por segundo, ~1.3s)
-    tintStrength: 0.7,   // 0..1: o quanto o carro escurece com a película cheia
-    tintR: 118, tintG: 100, tintB: 158, // cor do carro "molhado" de óleo
+    tintStrength: 0.4,
+    tintR: 210, tintG: 145, tintB: 255,
 
     // Emissão enquanto está na mancha (partículas por segundo)
     dropsBase: 14, dropsPerSpeed: 60,
@@ -62,6 +62,27 @@ const TUNING = {
     shakePerSpeed: 0.0014
 };
 
+// Apply the game's neon palette once at texture creation. The original
+// alpha, holes, droplets and silhouette also keep the existing sensors valid.
+export function neonOilPixels(pixels, width, height) {
+    const original = new Uint8ClampedArray(pixels);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+        const offset = (y * width + x) * 4;
+        const alpha = original[offset + 3];
+        if (!alpha) continue;
+        const brightness = Math.min(1, Math.max(original[offset], original[offset + 1], original[offset + 2]) / 55);
+        const edge = [[-1, 0], [1, 0], [0, -1], [0, 1]].some(([dx, dy]) => {
+            const nx = x + dx, ny = y + dy;
+            return nx < 0 || nx >= width || ny < 0 || ny >= height
+                || original[(ny * width + nx) * 4 + 3] < alpha * 0.6;
+        });
+        pixels[offset] = edge ? 201 : Math.round(88 + brightness * 95);
+        pixels[offset + 1] = edge ? 90 : Math.round(15 + brightness * 48);
+        pixels[offset + 2] = edge ? 255 : Math.round(155 + brightness * 100);
+    }
+    return pixels;
+}
+
 export default class OilFX {
     /**
      * @param scene      RaceScene
@@ -78,7 +99,7 @@ export default class OilFX {
         // Objetos que precisam ser ignorados pela câmera de UI.
         this.worldObjects = [];
 
-        this.enabled = scene.textures.exists('fx-dot');
+        this.enabled = true;
         this.wasOn = false;
         this.coat = 0;
         this.dropAcc = 0;
@@ -93,20 +114,54 @@ export default class OilFX {
         this.createRings();
 
         // Guarda a escala base de cada poça pra pulsar sem "acumular".
-        this.spots.forEach((spot) => {
+        this.spots.forEach((spot, index) => {
+            spot.puddle.setTexture(`oil-neon-${spot.puddle.texture.key}`);
             spot.baseScaleX = spot.puddle.scaleX;
             spot.baseScaleY = spot.puddle.scaleY;
+            spot.phase = index * 0.63;
+            spot.aura = scene.add.image(spot.puddle.x, spot.puddle.y, 'oil-aura')
+                .setDisplaySize(126, 90).setBlendMode('ADD').setAlpha(0.55);
+            this.container.addAt(spot.aura, 0);
+            spot.sheen = scene.add.image(spot.puddle.x, spot.puddle.y, spot.puddle.texture.key)
+                .setScale(spot.baseScaleX, spot.baseScaleY).setBlendMode('ADD').setAlpha(0.16);
+            this.container.add(spot.sheen);
         });
     }
 
     createTextures() {
         const tex = this.scene.textures;
+        for (const key of ['zonaoleo', 'zonaoleo2']) {
+            const neonKey = `oil-neon-${key}`;
+            if (tex.exists(neonKey)) continue;
+            const source = tex.get(key).getSourceImage();
+            const texture = tex.createCanvas(neonKey, source.width, source.height);
+            const context = texture.getContext();
+            context.drawImage(source, 0, 0);
+            const image = context.getImageData(0, 0, source.width, source.height);
+            neonOilPixels(image.data, source.width, source.height);
+            context.putImageData(image, 0, 0);
+            texture.refresh();
+        }
+        for (const [key, size, inner, outer] of [
+            ['oil-aura', 128, 'rgba(163,53,255,0.38)', 'rgba(163,53,255,0)'],
+            ['oil-particle', 16, 'rgba(224,155,255,1)', 'rgba(163,53,255,0)'],
+        ]) {
+            if (tex.exists(key)) continue;
+            const texture = tex.createCanvas(key, size, size);
+            const context = texture.getContext();
+            const gradient = context.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+            gradient.addColorStop(0, inner);
+            gradient.addColorStop(1, outer);
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, size, size);
+            texture.refresh();
+        }
         if (tex.exists('oil-ring')) return;
 
         const g = this.scene.make.graphics({ x: 0, y: 0, add: false });
-        g.lineStyle(6, 0xffffff, 0.25);
+        g.lineStyle(6, 0xa335ff, 0.25);
         g.strokeCircle(32, 32, 27);
-        g.lineStyle(3, 0xffffff, 1);
+        g.lineStyle(3, 0xdca2ff, 1);
         g.strokeCircle(32, 32, 27);
         g.generateTexture('oil-ring', 64, 64);
         g.destroy();
@@ -114,47 +169,50 @@ export default class OilFX {
 
     createEmitters() {
         const add = this.scene.add;
-        const darks = [0x07040d, 0x140a24, 0x22103a];
+        const purples = [0xffffff, 0xd2a4ff, 0xe6bfff];
 
-        // Gotas escuras espirradas pelas rodas.
-        this.spray = add.particles(0, 0, 'fx-dot', {
+        // Gotas violeta espirradas pelas rodas.
+        this.spray = add.particles(0, 0, 'oil-particle', {
             lifespan: { min: 320, max: 720 },
             speed: { min: 30, max: 150 },
             scale: { start: 0.34, end: 0.04 },
             alpha: { start: 0.95, end: 0 },
-            tint: darks,
+            tint: purples,
+            blendMode: 'ADD', maxAliveParticles: 64,
             emitting: false
         }).setDepth(1001);
 
         // Respingo maior, só na entrada.
-        this.splash = add.particles(0, 0, 'fx-dot', {
+        this.splash = add.particles(0, 0, 'oil-particle', {
             lifespan: { min: 380, max: 820 },
             speed: { min: 90, max: 280 },
             scale: { start: 0.5, end: 0.05 },
             alpha: { start: 0.95, end: 0 },
-            tint: darks,
+            tint: purples,
+            blendMode: 'ADD', maxAliveParticles: 40,
             emitting: false
         }).setDepth(1001);
 
         // Reflexos iridescentes (óleo brilha em cor).
-        this.glint = add.particles(0, 0, 'fx-dot', {
+        this.glint = add.particles(0, 0, 'oil-particle', {
             lifespan: { min: 200, max: 440 },
             speed: { min: 50, max: 190 },
             scale: { start: 0.14, end: 0 },
             alpha: { start: 1, end: 0 },
-            tint: [0x00e5ff, 0xff22cc, 0x9d5cff],
+            tint: purples,
+            maxAliveParticles: 40,
             blendMode: 'ADD',
             emitting: false
         }).setDepth(1002);
 
-        // Marcas escuras deixadas no asfalto pelas rodas traseiras.
+        // Marcas violetas deixadas no asfalto pelas rodas traseiras.
         // Abaixo do carro (depth 1000) e acima das poças (480).
-        this.trail = add.particles(0, 0, 'fx-dot', {
+        this.trail = add.particles(0, 0, 'oil-particle', {
             lifespan: 1300,
             speed: 0,
             scale: { start: 0.3, end: 0.2 },
-            alpha: { start: 0.5, end: 0 },
-            tint: [0x07040d, 0x140a24],
+            alpha: { start: 0.32, end: 0 },
+            tint: purples, blendMode: 'ADD', maxAliveParticles: 80,
             emitting: false
         }).setDepth(700);
 
@@ -168,7 +226,6 @@ export default class OilFX {
         for (let i = 0; i < TUNING.ringPoolSize; i++) {
             const ring = this.scene.add.image(0, 0, 'oil-ring');
             ring.setVisible(false);
-            ring.setTint(0x9d5cff);
             ring.setBlendMode('ADD');
             this.container.add(ring);
             this.rings.push(ring);
@@ -260,6 +317,17 @@ export default class OilFX {
     // ------------------------------------------------------------------
     update(time, delta) {
         if (!this.enabled) return;
+        const view = this.scene.cameras.main.worldView;
+        for (const spot of this.spots) {
+            const visible = spot.puddle.x > view.x - 100 && spot.puddle.x < view.right + 100
+                && spot.puddle.y > view.y - 100 && spot.puddle.y < view.bottom + 100;
+            spot.aura.setVisible(visible); spot.sheen.setVisible(visible);
+            if (!visible) continue;
+            const pulse = 0.5 + 0.5 * Math.sin(time / 450 + spot.phase);
+            spot.aura.setAlpha(0.42 + pulse * 0.22);
+            spot.sheen.setAlpha(0.1 + pulse * 0.13)
+                .setScale(spot.puddle.scaleX, spot.puddle.scaleY);
+        }
 
         const car = this.car;
         const dt = Math.min(delta, 50) / 1000;
@@ -323,7 +391,7 @@ export default class OilFX {
     }
 
     /**
-     * Escurece o carro com a película de óleo. O canal de tint do carro é
+     * Tinge o carro de violeta com a película de óleo. O canal de tint é
      * do TurboFX (ele limpa o tint todo frame quando nada está ativo), então
      * aqui só entramos quando turbo, drift e superaquecimento estão de fora:
      * as cores deles têm prioridade e nada é sobrescrito.

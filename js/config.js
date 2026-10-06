@@ -4,7 +4,7 @@ var config = {
     height: 450,
     fps: {
         target: 15,
-        forceSetTimeOut: true
+        forceSetTimeOut: false
     },
     parent: 'game-container',
     physics: {

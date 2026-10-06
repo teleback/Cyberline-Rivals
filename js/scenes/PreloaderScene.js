@@ -1,3 +1,5 @@
+import { loadCarSkins, prepareCarSkins } from '../objects/CarSkins.js';
+
 class Preloader extends Phaser.Scene {
     constructor() { super('Preloader'); }
 
@@ -17,10 +19,13 @@ class Preloader extends Phaser.Scene {
         this.load.image('placas', 'assets/images/tiles/tiles novos/placas.png'+v);
         this.load.image('calcada', 'assets/images/tiles/tiles novos/calcada.png'+v);
         this.load.image('objetos', 'assets/images/tiles/tiles novos/objetos.png'+v);
-        this.load.image('carro', 'assets/images/tiles/tiles novos/carro.png'+v);
+        loadCarSkins(this, v);
         this.load.tilemapTiledJSON('pista', 'assets/images/tilemaps/pista.json'+v);
+        this.load.spritesheet('night-emissive', 'assets/images/lighting/emissive.png'+v,
+            { frameWidth: 64, frameHeight: 64 });
+        this.load.json('nightSources', 'assets/images/lighting/sources.json'+v);
         this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
-        this.load.image('placaboost', 'assets/images/tiles/tiles novos/placaboost.png'+v);
+        this.load.svg('placaboost', 'assets/images/tiles/tiles novos/boost-cyberpunk.svg'+v);
         // Obstáculos da pista: barril azul que o carro pode colidir.
         this.load.image('barril', 'assets/images/tiles/tiles novos/barril.png'+v);
         // Zonas de óleo: desaceleram o carro enquanto ele passa por cima.
@@ -32,6 +37,9 @@ class Preloader extends Phaser.Scene {
         this.load.audio('countdown', 'assets/images/audio/countdown.mp3'+v);
     }
 
-    create(data = {}) { this.scene.start('Race', data); }
+    create(data = {}) {
+        prepareCarSkins(this);
+        this.scene.start('Race', data);
+    }
 }
 export default Preloader;

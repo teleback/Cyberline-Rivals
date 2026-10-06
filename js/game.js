@@ -24,7 +24,10 @@ class Game extends Phaser.Game {
     }
 }
 
-window.onload = () => {
+window.onload = async () => {
+    // O Phaser desenha texto no canvas: a fonte precisa estar pronta antes.
+    try { await document.fonts?.load('16px "Cyber Arcade"'); }
+    catch (error) { console.warn('Fonte arcade indisponível; usando monospace.', error); }
     const game = new Game();
     initMobileSupport();
 };
