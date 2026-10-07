@@ -26,6 +26,7 @@ class Preloader extends Phaser.Scene {
         this.load.json('nightSources', 'assets/images/lighting/sources.json'+v);
         this.load.image('chegada', 'assets/images/tiles/tiles novos/chegada.png'+v);
         this.load.svg('placaboost', 'assets/images/tiles/tiles novos/boost-cyberpunk.svg'+v);
+        this.load.svg('tijolinho', 'assets/images/collectibles/tijolinho.svg'+v);
         // Obstáculos da pista: barril azul que o carro pode colidir.
         this.load.image('barril', 'assets/images/tiles/tiles novos/barril.png'+v);
         // Zonas de óleo: desaceleram o carro enquanto ele passa por cima.

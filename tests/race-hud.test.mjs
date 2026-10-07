@@ -31,6 +31,7 @@ export function setupHUD(width = 800) {
     const add = type => (...args) => { const object = new Shape(type, ...args); objects.push(object); return object; };
     const scene = { scale: { width, height: 450 }, map: { tileWidth: 64, tileHeight: 64 },
         totalLaps: 3, checkpointCount: 4, currentLap: 1, checkpointIndex: 0,
+        brickCount: 0,
         playerId: 'local', raceTimerStarted: true, raceStartTime: 0, raceFinished: false,
         time: { now: 1000 }, remotePlayers: {},
         car: { x: 4400, y: 3488, speedKmh: 164, turboFuel: 100, turboMax: 100, turboMinToActivate: 18 },
@@ -128,4 +129,51 @@ test('minimap movement creates no new objects and HUD text updates are throttled
     assert.equal(objects.length, count);
     assert.equal(hud.lastUpdate, 1100);
     assert.equal(hud.lastTimer, 1100);
+});
+
+test('Tijolinhos count responds immediately with a reusable collection pulse', () => {
+    const { hud, scene, objects } = setupHUD(480);
+    const objectCount = objects.length;
+    assert.equal(scene.brickCountLabel.value, '0');
+    assert.equal(hud.brickIcon.value, 'tijolinho');
+    assert.equal(hud.brickGain.visible, false);
+
+    scene.time.now = 1010;
+    scene.brickCount = 1;
+    hud.update();
+    assert.equal(scene.brickCountLabel.value, '1');
+    assert.equal(hud.brickGain.value, '+1');
+    assert.equal(hud.brickGain.visible, true);
+    assert.ok(hud.brickFlash.alpha > 0);
+    assert.ok(hud.brickIcon.width > 22);
+    assert.equal(hud.lastUpdate, 1000, 'collection feedback bypasses the stats throttle');
+
+    scene.time.now = 1020;
+    scene.brickCount = 4;
+    hud.update();
+    assert.equal(scene.brickCountLabel.value, '4');
+    assert.equal(hud.brickGain.value, '+3');
+
+    scene.time.now = 1670;
+    hud.update();
+    assert.equal(hud.brickGain.visible, false);
+    assert.equal(hud.brickFlash.alpha, 0);
+    assert.equal(hud.brickIcon.width, 22);
+    assert.equal(scene.brickCountLabel.style.color, '#ffe6b7');
+    assert.equal(objects.length, objectCount);
+});
+
+test('HUD includes lap and finish rewards in the tijolinho counter', () => {
+    const { hud, scene } = setupHUD();
+    scene.brickCount = 4;
+    let earned = 14;
+    scene.computeFinalScore = () => ({ total: earned });
+    hud.updateBricks(1100);
+    assert.equal(scene.brickCountLabel.value, '14');
+    assert.equal(hud.brickGain.value, '+14');
+    earned += 20;
+    hud.updateBricks(1200);
+    assert.equal(scene.brickCountLabel.value, '34');
+    assert.equal(hud.brickGain.value, '+20');
+    assert.equal(scene.brickCount, 4, 'reward display preserves the confirmed pickup count');
 });

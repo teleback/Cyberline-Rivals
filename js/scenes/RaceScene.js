@@ -10,6 +10,9 @@ import CarFX from "../fx/CarFX.js";
 import NightLighting from "../fx/NightLighting.js";
 import BoostFX from "../fx/BoostFX.js";
 import RaceHUD from "../fx/RaceHUD.js";
+import BrickCollectibles from "../objects/BrickCollectibles.js";
+import RaceResults from "../fx/RaceResults.js";
+import { BRICK_REWARD_RULES, computeBrickRewards } from "../objects/RaceRewards.js";
 import {
   showTouchControls,
   hideTouchControls,
@@ -46,6 +49,10 @@ class Race extends Phaser.Scene {
     this.networkRoundTrips = new Map();
     this.podiumShown = false;
     this.finishElapsedMs = null;
+    this.finishPlace = null;
+    this.raceRoundId = null;
+    this.raceResultsData = null;
+    this.finalScoreData = null;
     const map = this.make.tilemap({ key: "pista" });
     this.map = map;
 
@@ -123,24 +130,9 @@ class Race extends Phaser.Scene {
     this.raceStartTime = 0;
     this.raceElapsedMs = 0;
 
-    // SISTEMA DE PONTUAÇÃO
-    // Pontos base: terminar +1, cada volta +1, cada checkpoint +1,
-    // 1º lugar +2. Pontuação final = pontos base × multiplicador de tempo.
-    // Ajuste os limites de tempo (em segundos) aqui, se precisar.
-    this.scoreRules = {
-      finish: 1,
-      lap: 1,
-      checkpoint: 1,
-      firstPlace: 2,
-      // do mais rápido para o mais lento; acima do último = ×1
-      multipliers: [
-        { maxSeconds: 150, value: 2 },
-        { maxSeconds: 200, value: 1.5 },
-        { maxSeconds: 270, value: 1.25 },
-      ],
-    };
-    this.baseScore = 0;
-    this.scoreStats = { checkpoints: 0, laps: 0 };
+    // TIJOLINHOS: coleta na pista + voltas válidas + chegada + vitória.
+    this.rewardRules = BRICK_REWARD_RULES;
+    this.completedLaps = 0;
 
     this.lapArmed = false;
     this.checkpointIndex = 0;
@@ -208,6 +200,7 @@ class Race extends Phaser.Scene {
     );
     this.createObstacles();
     this.createOilZones();
+    this.brickCollectibles = new BrickCollectibles(this);
 
     this.buildHud();
     this.updateCheckpointHud();
@@ -324,6 +317,9 @@ class Race extends Phaser.Scene {
         startAt: this.raceStartAt,
         finished: this.raceFinished,
         finishElapsedMs: this.finishElapsedMs,
+        roundId: this.raceRoundId,
+        completedLaps: this.completedLaps,
+        brickState: this.brickCollectibles?.getNetworkState(),
         // Durante a queda (CarDropIn) o carro está no ar e encolhido:
         // publica a posição final da largada, não a do tween.
         x: this.localCarReady ? this.car.x : this.networkStartX,
@@ -344,7 +340,7 @@ class Race extends Phaser.Scene {
         ts: Date.now(),
         ...publishExtra,
       },
-      { retain },
+      { retain, qos: force ? 1 : 0 },
     );
   }
 
@@ -360,14 +356,19 @@ class Race extends Phaser.Scene {
       state.sessionId &&
       knownRemote.sessionId &&
       state.sessionId !== knownRemote.sessionId;
-    if (
-      knownRemote &&
-      incomingTs !== null &&
-      !newRemoteSession &&
-      incomingTs <= knownRemote.lastMessageTs
-    )
-      return;
-    if (newRemoteSession) knownRemote.lastMessageTs = 0;
+    // MQTT sequence also orders packets sent in the same millisecond.
+    const incomingSeq = Number.isSafeInteger(state.seq) && state.seq > 0 ? state.seq : null;
+    if (knownRemote && !newRemoteSession) {
+      if (incomingSeq !== null && knownRemote.lastMessageSeq > 0) {
+        if (incomingSeq <= knownRemote.lastMessageSeq) return;
+      } else if (incomingTs !== null && incomingTs < knownRemote.lastMessageTs) {
+        return;
+      }
+    }
+    if (newRemoteSession) {
+      knownRemote.lastMessageTs = 0;
+      knownRemote.lastMessageSeq = 0;
+    }
 
     if (state.syncRequest?.nonce && Number.isFinite(state.syncRequest.sentAt)) {
       const remoteReceivedAt = Date.now();
@@ -484,6 +485,10 @@ class Race extends Phaser.Scene {
         vy: 0,
         angularVelocity: 0,
         lastMessageTs: 0,
+        lastMessageSeq: 0,
+        roundId: null,
+        completedLaps: 0,
+        skin: getCarSkin(state.skin).id,
         lastPacketAt: performance.now(),
         interpolationDelay: 80,
         arrivalJitter: 0,
@@ -504,6 +509,8 @@ class Race extends Phaser.Scene {
       remote.ready = false;
       remote.finished = false;
       remote.finishElapsedMs = null;
+      remote.roundId = null;
+      remote.completedLaps = 0;
       remote.startAt = null;
       remote.stateBuffer.length = 0;
       remote.vx = 0;
@@ -512,6 +519,7 @@ class Race extends Phaser.Scene {
     }
     remote.sessionId = state.sessionId || remote.sessionId;
     if (incomingTs !== null) remote.lastMessageTs = incomingTs;
+    if (incomingSeq !== null) remote.lastMessageSeq = incomingSeq;
     const receivedAt = performance.now();
     const packetInterval = receivedAt - remote.lastPacketAt;
     if (packetInterval > 0 && packetInterval < 2000) {
@@ -529,12 +537,15 @@ class Race extends Phaser.Scene {
     remote.online = true;
     remote.lastSeen = Date.now();
     remote.ready = state.ready === true;
-    remote.finished = state.finished === true;
+    remote.roundId = typeof state.roundId === "string" ? state.roundId : null;
+    remote.finished = state.finished === true && remote.roundId === this.raceRoundId;
+    remote.completedLaps = Number.isInteger(state.completedLaps)
+      ? Math.max(0, Math.min(this.totalLaps, state.completedLaps)) : 0;
     remote.lap = Math.max(1, Number(state.lap) || 1);
     remote.checkpointIndex = Number.isInteger(state.checkpointIndex) ? state.checkpointIndex : null;
     remote.finishElapsedMs =
       typeof state.finishElapsedMs === "number" &&
-      Number.isFinite(state.finishElapsedMs)
+      Number.isFinite(state.finishElapsedMs) && state.finishElapsedMs >= 0
         ? Number(state.finishElapsedMs)
         : null;
     remote.startAt =
@@ -593,7 +604,9 @@ class Race extends Phaser.Scene {
     if (state.skin && remote.sprite.texture.key !== getCarSkin(state.skin).texture) {
       remote.sprite.setTexture(getCarSkin(state.skin).texture);
     }
+    if (state.skin) remote.skin = getCarSkin(state.skin).id;
     if (state.nick) remote.nick = state.nick;
+    this.brickCollectibles?.receiveNetworkState(state);
     remote.networkControls = state.controls || remote.networkControls;
     remote.turboIntensity = Phaser.Math.Clamp(
       Number(state.turboIntensity) || 0,
@@ -867,6 +880,15 @@ class Race extends Phaser.Scene {
   startRaceTimer() {
     if (this.raceTimerStarted || this.raceFinished) return;
 
+    const opponent = this.getActiveOpponents()[0];
+    if (!opponent) return;
+    const coordinatorId = [this.playerId, opponent.id].sort((a, b) => a.localeCompare(b))[0];
+    const localCoordinator = coordinatorId === this.playerId;
+    const session = localCoordinator ? this.multiplayer.sessionId : opponent.sessionId;
+    const startAt = localCoordinator ? this.raceStartAt : opponent.startAt;
+    this.raceRoundId = JSON.stringify([this.roomId, coordinatorId, session, startAt]);
+    this.brickCollectibles.startRace({ roundId: this.raceRoundId, coordinatorId,
+      participantIds: [this.playerId, opponent.id] });
     this.raceTimerStarted = true;
     this.raceStartTime = this.time.now;
     this.raceElapsedMs = 0;
@@ -1308,8 +1330,6 @@ class Race extends Phaser.Scene {
 
     gate.checkpointCooldownUntil = now + 900;
     this.checkpointIndex++;
-    this.baseScore += this.scoreRules.checkpoint;
-    this.scoreStats.checkpoints++;
 
     // Feedback completo: HUD + som + efeito de passagem.
     this.playCheckpointFeedback(index);
@@ -1504,6 +1524,7 @@ class Race extends Phaser.Scene {
   // Som curto gerado pelo próprio navegador: não depende de asset externo.
   playCheckpointSound(index) {
     try {
+      if (this.sound?.mute || this.audio?.muted) return;
       const ctx = this.sound && this.sound.context;
       if (!ctx || ctx.state === "suspended" || this.sound.mute) return;
 
@@ -1568,9 +1589,9 @@ class Race extends Phaser.Scene {
           ease: "Quad.easeOut",
         });
       } else if (this.currentLap < this.totalLaps) {
-        this.baseScore += this.scoreRules.lap;
-        this.scoreStats.laps++;
+        this.completedLaps++;
         this.currentLap++;
+        this.brickCollectibles?.resetForLap(this.currentLap);
         this.checkpointIndex = 0;
         this.lapLabel.setText(`VOLTA ${this.currentLap} / ${this.totalLaps}`);
         this.updateCheckpointHud();
@@ -1584,8 +1605,7 @@ class Race extends Phaser.Scene {
           ease: "Quad.easeOut",
         });
       } else {
-        this.baseScore += this.scoreRules.lap; // última volta
-        this.scoreStats.laps++;
+        this.completedLaps++;
         this.finishRace();
       }
     }
@@ -1617,84 +1637,53 @@ class Race extends Phaser.Scene {
     this.car.setAngularVelocity(0);
 
     // A colocação só é definida depois de receber a chegada do adversário.
-    this.baseScore += this.scoreRules.finish;
     this.publishNetworkState(true, true);
     this.showWaitingForOpponent();
     this.tryResolvePodium();
   }
 
   showWaitingForOpponent() {
-    this.championOverlay.setVisible(true).setAlpha(0.72);
-    this.championPanel.setVisible(true).setAlpha(1).setScale(1);
-    this.championText
-      .setText("CORRIDA FINALIZADA")
-      .setFontSize(this.scale.width < 500 ? 23 : 38)
-      .setColor("#00e5ff")
-      .setVisible(true)
-      .setAlpha(1)
-      .setScale(1);
-    this.championSubtext
-      .setText("AGUARDANDO ADVERSÁRIO...")
-      .setVisible(true)
-      .setAlpha(1);
+    this.raceResults.showWaiting();
   }
 
   tryResolvePodium() {
-    if (!this.raceFinished || this.podiumShown) return;
-    const finishers = Object.values(this.remotePlayers).filter(
-      (player) => player.finished && Number.isFinite(player.finishElapsedMs),
-    );
+    if (!this.raceFinished || this.podiumShown || this.brickCollectibles?.hasPendingClaims()) return;
+    const finishers = Object.values(this.remotePlayers).filter(player =>
+      player.finished && player.roundId === this.raceRoundId && Number.isFinite(player.finishElapsedMs));
     if (finishers.length !== 1) return;
 
     const opponent = finishers[0];
     const results = [
-      {
-        id: this.playerId,
-        nick: this.playerNick,
-        elapsed: this.finishElapsedMs,
-      },
-      {
-        id: opponent.id,
-        nick: opponent.nick || "PILOTO",
-        elapsed: opponent.finishElapsedMs,
-      },
+      { id: this.playerId, nick: this.playerNick, skin: this.carSkin, tint: this.carTint,
+        elapsed: this.finishElapsedMs, laps: this.completedLaps, local: true },
+      { id: opponent.id, nick: opponent.nick || "PILOTO", skin: opponent.skin, tint: opponent.tint,
+        elapsed: opponent.finishElapsedMs, laps: opponent.completedLaps, local: false },
     ].sort((a, b) => a.elapsed - b.elapsed || a.id.localeCompare(b.id));
 
-    this.finishPlace = results[0].id === this.playerId ? 1 : 2;
-    this.championNick = results[0].nick;
-    if (this.finishPlace === 1) this.baseScore += this.scoreRules.firstPlace;
+    this.raceResultsData = results.map((driver, index) => {
+      const collected = this.brickCollectibles?.countFor(driver.id) || 0;
+      const place = index + 1;
+      return { ...driver, collected, place,
+        rewards: computeBrickRewards({ collected, laps: driver.laps, finished: true, place }, this.rewardRules) };
+    });
+    this.finishPlace = this.raceResultsData.find(driver => driver.local).place;
+    this.championNick = this.raceResultsData[0].nick;
     this.finalScoreData = this.computeFinalScore();
     this.podiumShown = true;
-    this.playChampionAnimation(this.finishPlace, this.championNick);
-    this.time.delayedCall(2600, () => this.showScorePanel());
-  }
-
-  getTimeMultiplier(seconds) {
-    for (const tier of this.scoreRules.multipliers) {
-      if (seconds <= tier.maxSeconds) return tier.value;
-    }
-    return 1;
+    this.publishNetworkState(true, true);
+    this.playChampionAnimation();
+    this.time.delayedCall(2400, () => this.showScorePanel());
   }
 
   computeFinalScore() {
-    const seconds = this.raceElapsedMs / 1000;
-    const multiplier = this.getTimeMultiplier(seconds);
-    return {
-      base: this.baseScore,
-      multiplier,
-      total: Math.round(this.baseScore * multiplier * 100) / 100,
-    };
+    return computeBrickRewards({ collected: this.brickCount || 0,
+      laps: this.completedLaps || 0, finished: this.raceFinished, place: this.finishPlace }, this.rewardRules);
   }
 
-  // ------------------------------------------------------------------
-  // PAINEL DE PONTUAÇÃO ANIMADO
-  // Linhas entram uma a uma com números subindo e "tick" sonoro, os
-  // pontos base se somam, o multiplicador "carimba" na tela e o total
-  // final sobe com easing, terminando com flash, onda e faíscas.
-  // Clique / toque / qualquer tecla pula direto para o resultado.
-  // ------------------------------------------------------------------
+  // Synthesized feedback for checkpoints, pickups and the result animation.
   scoreTone(freq, dur = 0.06, vol = 0.05, type = "square", slideTo = null) {
     try {
+      if (this.sound?.mute || this.audio?.muted) return;
       const ctx = this.sound && this.sound.context;
       if (!ctx) return;
       if (ctx.state === "suspended") ctx.resume();
@@ -1715,691 +1704,15 @@ class Race extends Phaser.Scene {
   }
 
   showScorePanel() {
-    const { width, height } = this.scale;
-    const d = this.finalScoreData || this.computeFinalScore();
-    const st = this.scoreStats || { checkpoints: 0, laps: 0 };
-    const rules = this.scoreRules;
-    const cx = width / 2,
-      cy = height / 2;
-    const depth = 5100;
-    const mono = "monospace";
-
-    // quantas casas decimais o total final precisa
-    const decimals =
-      Math.abs((d.total * 100) % 10) > 0.001
-        ? 2
-        : Math.abs(d.total % 1) > 0.001
-          ? 1
-          : 0;
-    const fmtNum = (n, dec = decimals) => n.toFixed(dec).replace(".", ",");
-    const fmtMult = (m) => "×" + String(m).replace(".", ",");
-
-    // cor do multiplicador conforme a faixa
-    const multColor =
-      d.multiplier >= 2
-        ? "#ffd23f"
-        : d.multiplier >= 1.5
-          ? "#ff2bd6"
-          : d.multiplier > 1
-            ? "#00e5ff"
-            : "#9fb3c8";
-
-    // Esconde a tela de CAMPEÃO.
-    [
-      this.championOverlay,
-      this.championPanel,
-      this.championText,
-      this.championSubtext,
-    ].forEach((o) => o.setVisible(false));
-
-    // O minimapa sai de cena enquanto a pontuação aparece.
-    const miniObjs = [
-      this.miniMapBackground,
-      this.miniMapImage,
-      this.miniMapPlayer,
-      this.miniMapRival,
-      this.miniMapFrame,
-      this.miniMapLabel,
-    ].filter(Boolean);
-    this.tweens.add({
-      targets: miniObjs,
-      alpha: 0,
-      duration: 250,
-      onComplete: () => miniObjs.forEach((o) => o.setVisible(false)),
-    });
-
-    this.scoreAnimObjs = [];
-    this.scoreAnimTweens = [];
-    this.scoreAnimTimers = [];
-    const reg = (o) => {
-      o.setScrollFactor(0);
-      this.cameras.main.ignore(o); // só a câmera de UI desenha
-      this.hud.push(o);
-      this.scoreAnimObjs.push(o);
-      return o;
-    };
-    const addTween = (cfg) => {
-      const t = this.tweens.add(cfg);
-      this.scoreAnimTweens.push(t);
-      return t;
-    };
-    const addCounter = (cfg) => {
-      const t = this.tweens.addCounter(cfg);
-      this.scoreAnimTweens.push(t);
-      return t;
-    };
-    const later = (ms, fn) => {
-      const t = this.time.delayedCall(ms, fn);
-      this.scoreAnimTimers.push(t);
-      return t;
-    };
-
-    // ---------- layout ----------
-    const pw = Math.min(540, width - 40),
-      ph = 336;
-    const left = cx - pw / 2 + 34,
-      right = cx + pw / 2 - 34;
-
-    // Fundo: a arte cyberpunk cobre a tela toda (modo "cover") e recebe
-    // uma camada escura leve para as letras ficarem bem legíveis.
-    const hasBg = this.textures.exists("scoreBg");
-    const bg = reg(
-      hasBg
-        ? this.add.image(cx, cy, "scoreBg").setDepth(depth)
-        : this.add.rectangle(cx, cy, width, height, 0x0a1020).setDepth(depth),
-    );
-    let bgScale = 1;
-    if (hasBg) {
-      const src = this.textures.get("scoreBg").getSourceImage();
-      bgScale = Math.max(width / src.width, height / src.height);
-      bg.setScale(bgScale);
-    }
-    const dim = reg(
-      this.add
-        .rectangle(cx, cy, width, height, 0x050711, 0.38)
-        .setDepth(depth + 1),
-    );
-    const title = reg(
-      this.add
-        .text(cx, cy - ph / 2 + 28, "PONTUAÇÃO", {
-          fontFamily: mono,
-          fontSize: "26px",
-          fontStyle: "bold",
-          color: "#ffe066",
-          stroke: "#07111f",
-          strokeThickness: 7,
-        })
-        .setOrigin(0.5)
-        .setDepth(depth + 2),
-    );
-
-    const rowY = (i) => cy - ph / 2 + 70 + i * 28;
-    const mkRow = (i, label) => {
-      const l = reg(
-        this.add
-          .text(left, rowY(i), label, {
-            fontFamily: mono,
-            fontSize: "17px",
-            color: "#dbe6f5",
-            stroke: "#050711",
-            strokeThickness: 4,
-          })
-          .setOrigin(0, 0.5)
-          .setDepth(depth + 2),
-      );
-      const v = reg(
-        this.add
-          .text(right, rowY(i), "+0", {
-            fontFamily: mono,
-            fontSize: "19px",
-            fontStyle: "bold",
-            color: "#ffffff",
-            stroke: "#050711",
-            strokeThickness: 4,
-          })
-          .setOrigin(1, 0.5)
-          .setDepth(depth + 2),
-      );
-      l.setAlpha(0);
-      v.setAlpha(0);
-      return { l, v };
-    };
-
-    const rows = [
-      {
-        ...mkRow(0, `CHECKPOINTS  ×${st.checkpoints}`),
-        n: st.checkpoints * rules.checkpoint,
-      },
-      { ...mkRow(1, `VOLTAS  ×${st.laps}`), n: st.laps * rules.lap },
-      { ...mkRow(2, "CHEGADA"), n: rules.finish },
-      { ...mkRow(3, "1º LUGAR"), n: rules.firstPlace },
-    ];
-
-    const divY = rowY(4) - 4;
-    const divider = reg(
-      this.add
-        .rectangle(cx, divY, pw - 68, 2, 0x00e5ff, 0.75)
-        .setDepth(depth + 2),
-    );
-    divider.setScale(0, 1);
-
-    const baseLabel = reg(
-      this.add
-        .text(left, divY + 24, "PONTOS BASE", {
-          fontFamily: mono,
-          fontSize: "17px",
-          color: "#a9c2e0",
-          stroke: "#050711",
-          strokeThickness: 4,
-        })
-        .setOrigin(0, 0.5)
-        .setDepth(depth + 2),
-    ).setAlpha(0);
-    const baseVal = reg(
-      this.add
-        .text(right, divY + 24, "0", {
-          fontFamily: mono,
-          fontSize: "22px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#050711",
-          strokeThickness: 4,
-        })
-        .setOrigin(1, 0.5)
-        .setDepth(depth + 2),
-    ).setAlpha(0);
-
-    const timeLabel = reg(
-      this.add
-        .text(
-          left,
-          divY + 54,
-          `TEMPO  ${this.formatRaceTime(this.raceElapsedMs)}`,
-          {
-            fontFamily: mono,
-            fontSize: "17px",
-            color: "#a9c2e0",
-            stroke: "#050711",
-            strokeThickness: 4,
-          },
-        )
-        .setOrigin(0, 0.5)
-        .setDepth(depth + 2),
-    ).setAlpha(0);
-    const multText = reg(
-      this.add
-        .text(right, divY + 54, fmtMult(d.multiplier), {
-          fontFamily: mono,
-          fontSize: "30px",
-          fontStyle: "bold",
-          color: multColor,
-          stroke: "#07111f",
-          strokeThickness: 5,
-        })
-        .setOrigin(1, 0.5)
-        .setDepth(depth + 3),
-    ).setAlpha(0);
-
-    const totalY = cy + ph / 2 - 52;
-    const totalText = reg(
-      this.add
-        .text(cx, totalY, fmtNum(0), {
-          fontFamily: mono,
-          fontSize: "68px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          stroke: "#07111f",
-          strokeThickness: 9,
-        })
-        .setOrigin(0.5)
-        .setDepth(depth + 3),
-    ).setAlpha(0);
-
-    const hint = reg(
-      this.add
-        .text(cx, cy + ph / 2 - 12, "toque para pular", {
-          fontFamily: mono,
-          fontSize: "11px",
-          color: "#56688a",
-        })
-        .setOrigin(0.5)
-        .setDepth(depth + 2),
-    ).setAlpha(0.8);
-
-    // ---------- efeitos ----------
-    const burst = (x, y, n, colors, power = 1) => {
-      for (let i = 0; i < n; i++) {
-        const c = colors[i % colors.length];
-        const sp = reg(
-          this.add
-            .rectangle(
-              x,
-              y,
-              Phaser.Math.Between(3, 6),
-              Phaser.Math.Between(3, 6),
-              c,
-            )
-            .setDepth(depth + 4),
-        );
-        const ang = Phaser.Math.FloatBetween(0, Math.PI * 2);
-        const dist = Phaser.Math.Between(50, 150) * power;
-        addTween({
-          targets: sp,
-          x: x + Math.cos(ang) * dist,
-          y: y + Math.sin(ang) * dist + 25,
-          alpha: 0,
-          angle: Phaser.Math.Between(-180, 180),
-          scale: 0.2,
-          duration: Phaser.Math.Between(450, 850),
-          ease: "Cubic.easeOut",
-          onComplete: () => sp.destroy(),
-        });
-      }
-    };
-    const ring = (x, y, color, big = 220) => {
-      const r = reg(
-        this.add
-          .circle(x, y, 10)
-          .setStrokeStyle(4, color, 1)
-          .setDepth(depth + 4),
-      );
-      addTween({
-        targets: r,
-        radius: big,
-        alpha: 0,
-        duration: 650,
-        ease: "Cubic.easeOut",
-        onComplete: () => r.destroy(),
-      });
-    };
-    const punch = (obj, to = 1.3, dur = 110) => {
-      addTween({
-        targets: obj,
-        scale: to,
-        duration: dur,
-        yoyo: true,
-        ease: "Quad.easeOut",
-      });
-    };
-
-    let finished = false;
-    let runningBase = 0;
-
-    const finalState = () => {
-      rows.forEach((r) => {
-        r.l.setAlpha(1).setX(left);
-        r.v.setAlpha(1).setText("+" + r.n);
-      });
-      divider.setScale(1, 1);
-      baseLabel.setAlpha(1);
-      baseVal.setAlpha(1).setText(String(d.base));
-      timeLabel.setAlpha(1);
-      multText.setAlpha(1).setScale(1);
-      totalText
-        .setAlpha(1)
-        .setScale(1)
-        .setText(fmtNum(d.total))
-        .setColor("#00ff9d");
-      hint.setVisible(false);
-    };
-
-    const skip = () => {
-      if (finished) return;
-      finished = true;
-      this.scoreAnimTweens.forEach((t) => t.stop && t.stop());
-      this.scoreAnimTimers.forEach((t) => t.remove && t.remove(false));
-      finalState();
-      this.scoreTone(880, 0.12, 0.05, "triangle");
-      this.input.off("pointerdown", skip);
-      this.input.keyboard && this.input.keyboard.off("keydown", skip);
-    };
-
-    // ---------- sequência ----------
-    // 1) painel entra
-    [bg, dim, title].forEach((o) => o.setAlpha(0));
-    bg.setScale(bgScale * 1.12);
-    addTween({ targets: bg, alpha: 1, duration: 500, ease: "Sine.easeOut" });
-    // zoom lento e suave, dando vida ao fundo durante a contagem
-    addTween({
-      targets: bg,
-      scale: bgScale,
-      duration: 6000,
-      ease: "Sine.easeOut",
-    });
-    addTween({ targets: dim, alpha: 0.38, duration: 500 });
-    addTween({ targets: title, alpha: 1, duration: 300, delay: 250 });
-    this.scoreTone(330, 0.18, 0.05, "triangle", 660);
-
-    // 2) linhas com contagem (encadeadas)
-    let t = 420;
-    rows.forEach((r, idx) => {
-      const n = r.n;
-      const dur = Phaser.Math.Clamp(n * 55, 260, 720);
-      later(t, () => {
-        if (finished) return;
-        r.l.setX(left - 24);
-        addTween({
-          targets: r.l,
-          alpha: 1,
-          x: left,
-          duration: 220,
-          ease: "Cubic.easeOut",
-        });
-        addTween({ targets: r.v, alpha: 1, duration: 160 });
-        let last = 0;
-        addCounter({
-          from: 0,
-          to: n,
-          duration: dur,
-          ease: "Sine.easeOut",
-          onUpdate: (tw) => {
-            const val = Math.round(tw.getValue());
-            if (val !== last) {
-              last = val;
-              r.v.setText("+" + val);
-              this.scoreTone(
-                520 + (val / Math.max(1, n)) * 420,
-                0.045,
-                0.035,
-                "square",
-              );
-            }
-          },
-          onComplete: () => {
-            r.v.setText("+" + n).setColor("#00ff9d");
-            punch(r.v, 1.35, 110);
-            runningBase += n;
-            baseVal.setAlpha(1).setText(String(runningBase));
-            baseLabel.setAlpha(1);
-            punch(baseVal, 1.2, 100);
-            this.scoreTone(740 + idx * 110, 0.09, 0.05, "triangle");
-          },
-        });
-      });
-      t += dur + 260;
-    });
-
-    // 3) linha divisória + base
-    later(t, () => {
-      if (finished) return;
-      addTween({
-        targets: divider,
-        scaleX: 1,
-        duration: 260,
-        ease: "Cubic.easeOut",
-      });
-    });
-    t += 420;
-
-    // 4) multiplicador carimba
-    later(t, () => {
-      if (finished) return;
-      addTween({ targets: timeLabel, alpha: 1, duration: 250 });
-      multText.setAlpha(1).setScale(3.2);
-      addTween({
-        targets: multText,
-        scale: 1,
-        duration: 360,
-        ease: "Back.easeOut",
-        onComplete: () => {
-          if (d.multiplier > 1) {
-            this.cameras.main.shake(180, 0.004);
-            this.uiCam.shake(180, 0.004);
-            ring(
-              right - 26,
-              multText.y,
-              Phaser.Display.Color.HexStringToColor(multColor).color,
-              120,
-            );
-            burst(
-              right - 26,
-              multText.y,
-              14,
-              [
-                Phaser.Display.Color.HexStringToColor(multColor).color,
-                0xffffff,
-              ],
-              0.8,
-            );
-          }
-        },
-      });
-      this.scoreTone(d.multiplier > 1 ? 160 : 220, 0.2, 0.09, "sawtooth", 70);
-      if (d.multiplier > 1)
-        later(120, () =>
-          this.scoreTone(660 + d.multiplier * 200, 0.16, 0.05, "triangle"),
-        );
-    });
-    t += 700;
-
-    // 5) total sobe de base -> final
-    later(t, () => {
-      if (finished) return;
-      totalText.setAlpha(1).setText(fmtNum(d.base)).setScale(0.9);
-      addTween({
-        targets: totalText,
-        scale: 1,
-        duration: 200,
-        ease: "Back.easeOut",
-      });
-      let lastTick = -1;
-      const steps = 28;
-      addCounter({
-        from: d.base,
-        to: d.total,
-        duration: 1700,
-        ease: "Cubic.easeOut",
-        onUpdate: (tw) => {
-          const v = tw.getValue();
-          totalText.setText(fmtNum(v));
-          const k = Math.floor(tw.progress * steps);
-          if (k !== lastTick) {
-            lastTick = k;
-            this.scoreTone(380 + tw.progress * 900, 0.04, 0.03, "square");
-            totalText.setColor(k % 2 ? "#ffffff" : "#ffe066");
-            totalText.setScale(1 + (k % 2) * 0.03);
-          }
-        },
-        onComplete: () => {
-          if (finished) return;
-          finished = true;
-          totalText.setText(fmtNum(d.total)).setColor("#00ff9d");
-          addTween({
-            targets: totalText,
-            scale: { from: 1.45, to: 1 },
-            duration: 420,
-            ease: "Back.easeOut",
-          });
-          // flash branco rápido
-          const flash = reg(
-            this.add
-              .rectangle(cx, cy, width, height, 0xffffff, 0.35)
-              .setDepth(depth + 5),
-          );
-          addTween({
-            targets: flash,
-            alpha: 0,
-            duration: 380,
-            onComplete: () => flash.destroy(),
-          });
-          ring(cx, totalY, 0x00ff9d, 260);
-          burst(
-            cx,
-            totalY,
-            34,
-            [0x00ff9d, 0xffe066, 0xffffff, 0x00e5ff, 0xff2bd6],
-            1.4,
-          );
-          [784, 988, 1175, 1568].forEach((f, i) =>
-            later(i * 85, () => this.scoreTone(f, 0.18, 0.05, "triangle")),
-          );
-          hint.setVisible(false);
-          this.input.off("pointerdown", skip);
-          this.input.keyboard && this.input.keyboard.off("keydown", skip);
-        },
-      });
-    });
-
-    // pular
-    later(400, () => {
-      this.input.on("pointerdown", skip);
-      this.input.keyboard && this.input.keyboard.on("keydown", skip);
-    });
+    this.raceResults.showResults(this.raceResultsData);
   }
 
   createChampionOverlay() {
-    const { width, height } = this.scale;
-
-    this.championOverlay = this.add
-      .rectangle(width / 2, height / 2, width, height, 0x050711, 0.72)
-      .setScrollFactor(0)
-      .setDepth(5000)
-      .setVisible(false);
-
-    this.championPanel = this.add
-      .rectangle(
-        width / 2,
-        height / 2 + 8,
-        Math.min(620, width - 60),
-        150,
-        0x0a1020,
-        0.96,
-      )
-      .setScrollFactor(0)
-      .setDepth(5001)
-      .setStrokeStyle(3, 0x00e5ff)
-      .setVisible(false);
-
-    this.championText = this.add
-      .text(width / 2, height / 2 - 18, "CAMPEÃO!", {
-        fontFamily: "monospace",
-        fontSize: "48px",
-        fontStyle: "bold",
-        color: "#00e5ff",
-        stroke: "#07111f",
-        strokeThickness: 8,
-        align: "center",
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(5002)
-      .setVisible(false);
-
-    this.championSubtext = this.add
-      .text(width / 2, height / 2 + 38, "3 VOLTAS COMPLETAS", {
-        fontFamily: "monospace",
-        fontSize: "17px",
-        color: "#ffffff",
-        align: "center",
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(5002)
-      .setVisible(false);
-
-    // Confetes simples feitos com retângulos: não precisa de novo asset.
-    this.championConfetti = [];
-    for (let i = 0; i < 28; i++) {
-      const piece = this.add
-        .rectangle(
-          Phaser.Math.Between(0, width),
-          -20,
-          Phaser.Math.Between(4, 9),
-          Phaser.Math.Between(7, 15),
-          [0x00e5ff, 0xff2bd6, 0xffe066, 0xffffff][i % 4],
-        )
-        .setScrollFactor(0)
-        .setDepth(5003)
-        .setVisible(false);
-      this.championConfetti.push(piece);
-    }
-
-    this.hud.push(
-      this.championOverlay,
-      this.championPanel,
-      this.championText,
-      this.championSubtext,
-      ...this.championConfetti,
-    );
+    this.raceResults = new RaceResults(this);
   }
 
-  playChampionAnimation(place, championNick) {
-    const isWinner = place === 1;
-    this.championText
-      .setText(isWinner ? "CAMPEÃO!" : "2º LUGAR")
-      .setFontSize(this.scale.width < 500 ? 32 : 48)
-      .setColor(isWinner ? "#00e5ff" : "#ffe066");
-    this.championSubtext.setText(
-      isWinner ? "1º LUGAR • VOCÊ VENCEU" : `CAMPEÃO: ${championNick}`,
-    );
-    this.championPanel.setStrokeStyle(3, isWinner ? 0x00e5ff : 0xffe066);
-
-    const show = [
-      this.championOverlay,
-      this.championPanel,
-      this.championText,
-      this.championSubtext,
-    ];
-    show.forEach((o) => o.setVisible(true));
-
-    this.championOverlay.setAlpha(0);
-    this.championPanel.setAlpha(0).setScale(0.82);
-    this.championText.setAlpha(0).setScale(0.55);
-    this.championSubtext.setAlpha(0);
-
-    this.tweens.add({ targets: this.championOverlay, alpha: 1, duration: 350 });
-    this.tweens.add({
-      targets: this.championPanel,
-      alpha: 1,
-      scale: 1,
-      duration: 500,
-      ease: "Back.easeOut",
-    });
-    this.tweens.add({
-      targets: this.championText,
-      alpha: 1,
-      scale: 1,
-      duration: 650,
-      ease: "Back.easeOut",
-    });
-    this.tweens.add({
-      targets: this.championSubtext,
-      alpha: 1,
-      duration: 450,
-      delay: 300,
-    });
-
-    // O carro faz uma pequena comemoração: sobe, gira e volta para o
-    // chão, sem perder a posição onde terminou a terceira volta.
-    this.tweens.add({
-      targets: this.car,
-      scale: 1.22,
-      angle: this.car.angle - 360,
-      duration: 900,
-      ease: "Cubic.easeOut",
-      yoyo: true,
-      hold: 120,
-    });
-
-    this.championConfetti.forEach((piece, i) => {
-      if (!isWinner) {
-        piece.setVisible(false);
-        return;
-      }
-      piece.setPosition(Phaser.Math.Between(20, this.scale.width - 20), -20);
-      piece.setRotation(Phaser.Math.FloatBetween(-1, 1));
-      piece.setVisible(true);
-      this.tweens.add({
-        targets: piece,
-        y: this.scale.height + Phaser.Math.Between(20, 160),
-        x: piece.x + Phaser.Math.Between(-100, 100),
-        angle: Phaser.Math.Between(-5, 5),
-        duration: Phaser.Math.Between(1200, 2100),
-        delay: i * 22,
-        ease: "Quad.easeIn",
-        onComplete: () => piece.setVisible(false),
-      });
-    });
+  playChampionAnimation() {
+    this.raceResults.showPodium(this.raceResultsData);
   }
 
   // ------------------------------------------------------------------
@@ -2446,6 +1759,7 @@ class Race extends Phaser.Scene {
       ...this.obstacles.getChildren(),
       this.oilVisuals,
       this.boostVisuals,
+      ...(this.brickCollectibles ? this.brickCollectibles.worldObjects : []),
       ...(this.boostFX ? this.boostFX.worldObjects : []),
       ...this.fx.worldObjects,
       this.carFX.smoke,
@@ -2496,7 +1810,12 @@ class Race extends Phaser.Scene {
     this.checkBoostPlates(time);
     if (this.boostFX) this.boostFX.update(time);
     this.checkCheckpointFallback();
+    this.brickCollectibles?.update(time);
     this.updateLapSystem();
+    if (this.raceFinished && !this.podiumShown) {
+      this.raceResults?.updateWaiting();
+      this.tryResolvePodium();
+    }
     if (this.fx) this.fx.update(time, delta);
     if (this.carFX) this.carFX.update(delta);
     // Depois do TurboFX: o tint do carro é do TurboFX, o OilFX só

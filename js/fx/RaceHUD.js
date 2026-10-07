@@ -12,6 +12,9 @@ export default class RaceHUD {
         this.lastTimer = -Infinity;
         this.leaderId = null;
         this.leaderChangedAt = -Infinity;
+        this.brickCount = 0;
+        this.brickChangedAt = -Infinity;
+        this.brickPulseActive = false;
         this.isTouch = Boolean(scene.game?.device?.input?.touch);
     }
 
@@ -59,6 +62,16 @@ export default class RaceHUD {
         this.turboScan = this.register(s.add.rectangle(s.barX, s.barY - 1, 4, 6, 0xd8f7ff)
             .setOrigin(0).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0), 2003);
         s.turboLabel = this.text(x + 10, 141, this.isTouch ? 'PRONTO' : 'PRONTO / SHIFT', 6, '#88e2ff');
+
+        // Show pickups and earned race rewards in the same currency counter.
+        this.panel(x, 164, 148, 32, 0xffc86c);
+        this.brickIcon = this.register(s.add.image(x + 17, 180, 'tijolinho').setDisplaySize(22, 22));
+        this.text(x + 34, 170, 'TIJOLINHOS', 5, '#e9ba77');
+        this.brickCount = this.earnedBricks();
+        s.brickCountLabel = this.text(x + 34, 180, String(this.brickCount), 9, '#ffe6b7');
+        this.brickGain = this.text(x + 137, 179, '', 7, '#ffd979').setOrigin(1, 0).setVisible(false);
+        this.brickFlash = this.register(s.add.rectangle(x, 164, 148, 32, 0, 0)
+            .setOrigin(0).setStrokeStyle(1, 0xffd979).setAlpha(0), 2005);
 
         s.roomStatusLabel = this.text(width / 2, s.scale.height * 0.76, 'CONECTANDO À SALA...',
             8, '#ffffff', { backgroundColor: '#05060acc',
@@ -158,8 +171,40 @@ export default class RaceHUD {
         s.raceTimerLabel.setText(s.formatRaceTime(Math.max(0, elapsed)));
     }
 
+    earnedBricks() {
+        const count = this.scene.computeFinalScore?.().total ?? this.scene.brickCount;
+        return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
+    }
+
+    updateBricks(time) {
+        const s = this.scene;
+        const count = this.earnedBricks();
+        if (count !== this.brickCount) {
+            if (count > this.brickCount) {
+                this.brickChangedAt = time;
+                this.brickPulseActive = true;
+                this.brickGain.setText(`+${count - this.brickCount}`).setVisible(true);
+                s.brickCountLabel.setColor('#fff5d8');
+            }
+            this.brickCount = count;
+            s.brickCountLabel.setText(String(count));
+        }
+        if (!this.brickPulseActive) return;
+        const pulse = Math.max(0, 1 - (time - this.brickChangedAt) / 650);
+        this.brickFlash.setAlpha(pulse * 0.85);
+        this.brickGain.setAlpha(pulse);
+        const iconSize = 22 * (1 + pulse * 0.12);
+        this.brickIcon.setDisplaySize(iconSize, iconSize);
+        if (pulse === 0) {
+            this.brickPulseActive = false;
+            this.brickGain.setVisible(false);
+            s.brickCountLabel.setColor('#ffe6b7');
+        }
+    }
+
     update() {
         const s = this.scene, car = s.car, time = s.time.now;
+        this.updateBricks(time);
         const fuel = Math.max(0, Math.min(1, car.turboFuel / car.turboMax));
         s.turboBarFill.width = s.barW * fuel; s.turboBarGlow.width = s.turboBarFill.width;
         this.turboScan.setVisible(fuel > 0).setPosition(s.barX + (time / 900 % 1) * Math.max(0, s.turboBarFill.width - 5), s.barY - 1)

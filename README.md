@@ -13,7 +13,7 @@ Barbie:Super Model
 
 Fast like a fox
 
-Neon Rider 
+Neon Rider
 
 Trazendo uma jogabilidade simples e divertida. A estética é baseada no gênero Cyberpunk, com cidades iluminadas por neon, carros futuristas e atmosfera noturna, além de gráficos em pixel art.
 
@@ -42,10 +42,13 @@ O jogo não possui personagens jogáveis tradicionais, mas sim pilotos represent
   * Mini mapa da pista.
   * Botões virtuais para acelerar, frear e virar (dispositivos móveis).
 
-## Fontes de Receita
-- Completar uma volta sem bater em barreiras. +(…) tijolinhos
-- Fazer a melhor volta da corrida. +(…) tijolinhos.
-- Permanecer em primeiro lugar durante uma volta inteira. +(…) tijolinhos
-- Passar por todas as Placas Boost da pista. +(…) tijolinhos
-- Completar uma volta sem passar por nenhuma Zona de Óleo. +(…) tijolinhos
-- Vencer a corrida. +(…) tijolinhos
+## Tijolinhos e resultado da corrida
+
+- Cada tijolinho coletado na pista vale **1 tijolinho**. A coleta é compartilhada: quando um piloto pega, o outro não pode pegar o mesmo tijolinho naquela volta.
+- Completar uma volta válida, passando por todos os checkpoints: **+10 tijolinhos**.
+- Terminar as três voltas: **+20 tijolinhos**.
+- Vencer a corrida: **+50 tijolinhos**, somente para o primeiro colocado.
+
+Os tijolinhos da pista reaparecem por volta, mantendo um único dono por tijolinho e por volta. As coletas são confirmadas pelo coordenador da partida e sincronizadas entre os dois jogadores, inclusive em caso de mensagens repetidas.
+
+O resultado mostra os dois carros animados, o primeiro e o segundo colocado, o tempo de cada piloto e os tijolinhos ganhos com a coleta e as recompensas. O menor tempo decide o vencedor; não há multiplicador de pontuação por tempo. Os valores das recompensas ficam em `js/objects/RaceRewards.js`.
