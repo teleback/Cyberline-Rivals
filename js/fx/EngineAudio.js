@@ -222,8 +222,8 @@ export default class EngineAudio {
         const speedRatio = clamp(body.speed / this.vRef, 0, 1.6);
         const fwdRatio = clamp(fwd / this.vRef, 0, 1.6);
 
-        const throttle = enabled && accProj > 40;
-        const braking = enabled && accProj < -40 && fwd > (car.stoppedThreshold || 12);
+        const throttle = enabled && (car.networkControls?.throttle ?? accProj > 40);
+        const braking = enabled && (car.isBraking ?? (accProj < -40 && fwd > (car.stoppedThreshold || 12)));
         const drifting = enabled && !!car.isDrifting;
 
         // Carga: suaviza 0..1 (acelerando = motor mais cheio e brilhante).
@@ -301,7 +301,9 @@ export default class EngineAudio {
 
         // Canto de pneu: só em velocidade, e some conforme o carro para.
         const fast = smooth(0.16, 0.55, fwdRatio);
-        const squeal = Math.max(this.brake * 0.65 * fast, this.drift * 0.95 * smooth(0.12, 0.45, speedRatio));
+        const tireLoad = clamp((car.tireSlip || 0) * 1.8, 0, 0.8);
+        const squeal = Math.max(this.brake * 0.65 * fast,
+            this.drift * 0.95 * smooth(0.12, 0.45, speedRatio), tireLoad * fast * 0.55);
         this.squealGain.gain.setTargetAtTime(squeal, now, 0.03);
         // O tom do canto cai junto com a velocidade.
         const sq = 760 + 1100 * clamp(speedRatio, 0, 1);

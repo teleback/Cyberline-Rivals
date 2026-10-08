@@ -1,3 +1,4 @@
+import { HANDLING, MOBILE_HANDLING, createHandlingState, stepHandling } from './CarHandling.js';
 import { readGamepad, calibrateIfNeeded } from '../input/GamepadInput.js';
 import { readTouch } from '../input/TouchControls.js';
 
@@ -15,7 +16,6 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // RaceScene), então não usamos o retângulo genérico dos limites do
         // mundo pra colisão do carro.
         this.setCollideWorldBounds(false);
-        this.setBounce(0.2);
 
         // Por padrão o corpo de física usa o frame INTEIRO da imagem
         // (64x64), mas o desenho do carro em si só ocupa ~26x47 no centro
@@ -41,42 +41,22 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             CAR_CENTER_Y - CAR_HITBOX_RADIUS
         );
 
-        // Modo "damping" simula atrito: o carro perde velocidade aos poucos
-        // em vez de parar instantaneamente ao soltar a seta.
-        this.setDamping(true);
-        this.setDrag(0.92);
-        this.setMaxVelocity(390);
-
-        this.acceleration = 500;
-        this.turnSpeed = 230; // graus por segundo
-        this._touchSteering = 0;
-
-        // Aderência dos pneus: fração da velocidade LATERAL (de lado) que
-        // sobra depois de 1 segundo. Quanto menor, mais o carro "gruda" na
-        // direção em que está apontando em vez de escorregar tipo no gelo.
-        this.grip = 0.05;
-
-        // Só vira em velocidade proporcional (parado, quase não vira;
-        // em alta velocidade, vira na força total). Evita giro "de pião" parado.
-        this.minTurnFactor = 0.35;
-
-        // --- Freio / Ré ---
-        // Se o carro está andando pra frente e aperta pra baixo, freia (força
-        // de frenagem forte, maior que a aceleração normal). Só quando quase
-        // parado é que "baixo" passa a empurrar o carro de ré.
-        this.brakeDeceleration = 900;
-        this.reverseAcceleration = 260;
-        this.reverseMaxSpeed = 140;
-        this.stoppedThreshold = 12; // abaixo disso já considera "parado" pra engatar ré
-
-        // --- Drift ---
-        // Frear + virar em alta velocidade solta um pouco o pneu de trás:
-        // menos aderência (desliza mais de lado) mas vira mais fechado.
-        this.normalGrip = this.grip;
-        this.driftGrip = 0.35;
-        this.driftMinSpeedFactor = 0.45; // % da vel. máx. atual pra poder driftar
-        this.driftTurnBoost = 1.35;
+        // O controlador resolve tração e resistência uma única vez por frame.
+        // O Arcade mantém integração da posição, rotação e colisões.
+        this.setDamping(false);
+        this.setDrag(0);
+        this.setMaxVelocity(1400); // segurança; o limite real é circular
+        this.setBounce(0.08);
+        this.acceleration = HANDLING.acceleration;
+        this.turnSpeed = HANDLING.turnSpeed;
+        this.stoppedThreshold = HANDLING.stoppedThreshold;
+        this.reverseMaxSpeed = HANDLING.reverseMaxSpeed;
+        this.handling = createHandlingState();
         this.isDrifting = false;
+        this.isBraking = false;
+        this.tireSlip = 0;
+        this.lastDriveSpeed = 0;
+        this.contact = null;
 
         // ------------------------------------------------------------------
         // TURBO
@@ -108,11 +88,12 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.turboAccelMultiplier = 2.0;
         this.turboMaxVelMultiplier = 1.45;
         this.turboSpoolPerSec = 1.1;     // ~0.9s pra atingir o empurrão total
-        this.turboKick = 120;            // "soco" instantâneo ao acionar
+        this.turboKick = 65;             // impulso dosado pela velocidade
         this.overheatDuration = 1800;    // ms travado depois de estourar o tanque
 
         this.baseAcceleration = this.acceleration;
-        this.baseMaxVelocity = 390;
+        this.baseMaxVelocity = HANDLING.maxSpeed;
+        this.maxDriveSpeed = this.baseMaxVelocity;
 
         this.isTurboActive = false;
         this.turboSpool = 0;
@@ -120,6 +101,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.isOverheated = false;
         this._overheatUntil = 0;
         this._rechargeAfter = 0;
+        this._turboBlockedUntil = 0;
 
         // Boosts desenhados na camada "Cyber placa" do tilemap.
         this.trackBoostMultiplier = 1.45;
@@ -143,6 +125,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             left: false,
             right: false,
             turbo: false,
+            braking: false,
             drifting: false
         };
 
@@ -174,115 +157,82 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
     update(time, delta) {
         if (!this.controlsEnabled) {
-            this._touchSteering = 0;
+            const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
+            this.updateTurbo(time, Math.min(delta / 1000, 0.1), false, forward);
+            this.handling = createHandlingState();
+            this.isDrifting = false;
+            this.isBraking = false;
+            this.tireSlip = 0;
+            this.lastDriveSpeed = 0;
+            this.contact = null;
             this.setVelocity(0, 0);
+            this.body.acceleration.set(0, 0);
             this.setAngularVelocity(0);
             this.networkControls = {
-                throttle: false,
-                brake: false,
-                left: false,
-                right: false,
-                turbo: false,
-                drifting: false
+                throttle: false, brake: false, left: false, right: false,
+                turbo: false, drifting: false, braking: false
             };
             return;
         }
 
-        // Teclado + controle USB + toque (celular) juntos: qualquer um dos
-        // três funciona.
         const pad = readGamepad();
         const touch = readTouch();
+        const brake = this.cursors.down.isDown || pad.down || touch.down;
+        const throttle = (this.cursors.up.isDown || pad.up || touch.up) && !brake;
+        const keyboardSteer = Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
+        const heading = keyboardSteer || pad.steering ? null : touch.heading;
+        const steering = keyboardSteer || pad.steering || touch.steering || 0;
         this.padTurbo = pad.turbo || touch.turbo;
-        const left = { isDown: this.cursors.left.isDown || pad.left || touch.left };
-        const right = { isDown: this.cursors.right.isDown || pad.right || touch.right };
-        const up = { isDown: this.cursors.up.isDown || pad.up || touch.up };
-        const down = { isDown: this.cursors.down.isDown || pad.down || touch.down };
-        const seconds = delta / 1000;
-        // Suavização curta e independente do FPS, só para o joystick mobile.
-        // Soltar/centralizar zera imediatamente para não continuar virando.
-        if (touch.steering === 0) {
-            this._touchSteering = 0;
-        } else {
-            this._touchSteering += (touch.steering - this._touchSteering)
-                * (1 - Math.exp(-18 * seconds));
-        }
-        const digitalLeft = this.cursors.left.isDown || pad.left;
-        const digitalRight = this.cursors.right.isDown || pad.right;
-        const steering = digitalLeft ? -1 : digitalRight ? 1 : this._touchSteering;
-
-        // Vetor apontando pra onde o nariz do carro está virado. Serve pro
-        // freio/ré, pro drift e pro empurrão do turbo.
+        const seconds = Math.min(delta / 1000, 0.1);
         const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
         const forwardSpeed = this.body.velocity.dot(forward);
+        this.updateTurbo(time, seconds, throttle && forwardSpeed >= 0, forward);
 
-        this.updateTurbo(time, seconds, up.isDown, forward);
-
-        this.isDrifting = down.isDown
-            && (left.isDown || right.isDown)
-            && forwardSpeed > this.body.maxVelocity.x * this.driftMinSpeedFactor;
+        const motion = stepHandling(this.handling, {
+            vx: this.body.velocity.x, vy: this.body.velocity.y, rotation: this.rotation,
+            acceleration: this.acceleration, maxSpeed: this.maxDriveSpeed,
+        }, { steering, throttle, brake, heading }, seconds, touch.mobile ? MOBILE_HANDLING : HANDLING);
+        // Depois da batida, não empurra de novo contra a mesma superfície.
+        // A ré e a direção para longe dela continuam liberadas.
+        if (this.contact && time < this.contact.until) {
+            const { x: nx, y: ny } = this.contact;
+            // O pneu não cancela o desvio lateral da batida no frame seguinte.
+            // Frear libera essa assistência imediatamente para facilitar a ré.
+            if (throttle && forwardSpeed >= -this.stoppedThreshold) {
+                const tx = -ny, ty = nx;
+                const along = this.body.velocity.x * tx + this.body.velocity.y * ty;
+                const after = motion.vx * tx + motion.vy * ty;
+                const retained = along * Math.exp(-3 * seconds);
+                if (after * along >= 0 && Math.abs(retained) > Math.abs(after)) {
+                    motion.vx += tx * (retained - after);
+                    motion.vy += ty * (retained - after);
+                }
+            }
+            const into = motion.vx * nx + motion.vy * ny;
+            if (into < 0) {
+                const outward = Math.max(0, this.body.velocity.x * nx + this.body.velocity.y * ny);
+                motion.vx += nx * (outward - into);
+                motion.vy += ny * (outward - into);
+            }
+            this.handling.driftAmount = 0;
+            this.handling.drifting = false;
+            motion.isDrifting = false;
+        }
+        this.setVelocity(motion.vx, motion.vy);
+        this.body.acceleration.set(0, 0);
+        this.setAngularVelocity(motion.angularVelocity);
+        this.isDrifting = motion.isDrifting;
+        this.isBraking = motion.braking;
+        this.tireSlip = motion.slip;
         this.networkControls = {
-            throttle: up.isDown,
-            brake: down.isDown,
-            left: left.isDown,
-            right: right.isDown,
-            turbo: this.isTurboActive,
-            drifting: this.isDrifting
+            throttle: motion.throttle, brake, left: this.handling.steering < -0.05,
+            right: this.handling.steering > 0.05, turbo: this.isTurboActive,
+            drifting: this.isDrifting, braking: this.isBraking,
         };
 
-        const speedFactor = Phaser.Math.Clamp(
-            this.body.speed / this.body.maxVelocity.x, 0, 1
-        );
-        let turnFactor = this.minTurnFactor + (1 - this.minTurnFactor) * speedFactor;
-        if (this.isDrifting) turnFactor *= this.driftTurnBoost;
-        // Em turbo o carro fica mais "duro" de virar: em alta velocidade você
-        // não joga o volante à vontade, e isso faz o turbo PARECER rápido
-        // (tem custo) em vez de só andar mais.
-        turnFactor *= 1 - 0.28 * this.turboSpool;
-
-        this.setAngularVelocity(steering * this.turnSpeed * turnFactor);
-
-        if (up.isDown) {
-            // A imagem do carro1 aponta "pra cima" por padrão, por isso o
-            // ajuste de -90 graus (Math.PI / 2) no ângulo de movimento.
-            this.scene.physics.velocityFromRotation(
-                this.rotation - Math.PI / 2,
-                this.acceleration,
-                this.body.acceleration
-            );
-        } else if (down.isDown) {
-            if (forwardSpeed > this.stoppedThreshold) {
-                // Ainda andando pra frente: freia (desacelera forte), não
-                // engata ré ainda.
-                this.scene.physics.velocityFromRotation(
-                    this.rotation - Math.PI / 2,
-                    -this.brakeDeceleration,
-                    this.body.acceleration
-                );
-            } else if (forwardSpeed > -this.reverseMaxSpeed) {
-                // Já parou (ou está de ré abaixo do limite): acelera de ré.
-                this.scene.physics.velocityFromRotation(
-                    this.rotation - Math.PI / 2,
-                    -this.reverseAcceleration,
-                    this.body.acceleration
-                );
-            } else {
-                this.body.acceleration.set(0);
-            }
-        } else {
-            this.body.acceleration.set(0);
-        }
-
-        // Pneu solta durante o drift (mais deslize lateral); volta ao normal
-        // assim que solta o freio ou os direcionais. No turbo o pneu também
-        // solta um tiquinho — carro "leve" na frente.
-        this.grip = this.isDrifting ? this.driftGrip : this.normalGrip;
-        if (this.isTurboActive) this.grip = Math.max(this.grip, 0.12 * this.turboSpool);
-        this.applyGrip(delta);
-
-        // Zona de óleo: por último no frame, pra valer sobre qualquer
-        // aceleração/turbo aplicado acima.
         if (this.isOnOil) this.applyOilDeceleration(seconds);
         else this._oilSpeedCap = null;
+        this.lastDriveSpeed = this.body.velocity.length();
     }
 
     updateTurbo(time, seconds, throttleDown, forward) {
@@ -295,14 +245,21 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // Pra LIGAR exige um mínimo no tanque; pra MANTER ligado basta ter
         // qualquer coisa. Sem isso o turbo ficaria piscando ligado/desligado
         // exatamente no limiar, e todo o efeito visual piscaria junto.
-        const wantsTurbo = (this.keyShift.isDown || this.padTurbo) && throttleDown && !this.isOverheated;
+        const wantsTurbo = (this.keyShift.isDown || this.padTurbo) && throttleDown && !this.isOverheated
+            && time >= this._turboBlockedUntil;
         const canStart = this.turboFuel >= this.turboMinToActivate;
         const shouldBeActive = wantsTurbo && (this.isTurboActive ? this.turboFuel > 0 : canStart);
 
         if (shouldBeActive && !this.isTurboActive) {
             // Acionou agora: dá um soco de velocidade na hora. É esse
             // impulso instantâneo que o jogador SENTE; a rampa vem depois.
-            this.body.velocity.add(forward.clone().scale(this.turboKick));
+            const launchFactor = 0.35 + 0.65 * Math.min(1, this.body.speed / this.baseMaxVelocity);
+            const kickLimit = this.baseMaxVelocity
+                * (1 + (this.turboMaxVelMultiplier - 1) * Math.max(0.2, this.turboSpool))
+                * (time < this.trackBoostUntil ? this.trackBoostMultiplier : 1);
+            const kick = Math.min(this.turboKick * launchFactor,
+                Math.max(0, kickLimit - this.body.velocity.length()));
+            this.body.velocity.add(forward.clone().scale(kick));
             this.emit('turbo-start');
         } else if (!shouldBeActive && this.isTurboActive) {
             if (this.turboFuel <= 0) {
@@ -344,11 +301,9 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const trackBoostMultiplier = this.isTrackBoostActive
             ? this.trackBoostMultiplier
             : 1;
-        this.setMaxVelocity(
-            this.baseMaxVelocity
+        this.maxDriveSpeed = this.baseMaxVelocity
             * (1 + (this.turboMaxVelMultiplier - 1) * this.turboSpool)
-            * trackBoostMultiplier
-        );
+            * trackBoostMultiplier;
     }
 
     activateTrackBoost(time) {
@@ -358,8 +313,11 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
         const forwardSpeed = this.body.velocity.dot(forward);
         if (forwardSpeed > 0) {
-            const boostedSpeed = forwardSpeed * this.trackBoostMultiplier;
-            this.body.velocity.add(forward.scale(boostedSpeed - forwardSpeed));
+            const limit = this.baseMaxVelocity
+                * (1 + (this.turboMaxVelMultiplier - 1) * this.turboSpool) * this.trackBoostMultiplier;
+            const kick = Math.min(forwardSpeed * (this.trackBoostMultiplier - 1),
+                Math.max(0, limit - this.body.velocity.length()));
+            this.body.velocity.add(forward.scale(kick));
         }
 
         this.emit('track-boost-start');
@@ -393,20 +351,4 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         }
     }
 
-    // Separa a velocidade atual em componente "pra frente" (na direção que
-    // o carro está apontando) e "lateral", e derruba a lateral rapidamente.
-    // Isso é o que dá a sensação de pneu grudando no chão em vez de deslizar.
-    applyGrip(delta) {
-        const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
-        const velocity = this.body.velocity;
-
-        const forwardSpeed = velocity.dot(forward);
-        const forwardVelocity = forward.clone().scale(forwardSpeed);
-        const lateralVelocity = velocity.clone().subtract(forwardVelocity);
-
-        const seconds = delta / 1000;
-        lateralVelocity.scale(Math.pow(this.grip, seconds));
-
-        velocity.set(forwardVelocity.x + lateralVelocity.x, forwardVelocity.y + lateralVelocity.y);
-    }
 }

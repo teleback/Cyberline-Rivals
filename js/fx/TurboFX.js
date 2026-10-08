@@ -82,6 +82,8 @@ export default class TurboFX {
         this._ghostTimer = 0;
         this._angleTimer = 0;
         this._ghostIndex = 0;
+        this.lookX = 0;
+        this.lookY = 0;
 
         this.worldObjects = [];
         this.uiObjects = [];
@@ -300,7 +302,7 @@ export default class TurboFX {
         const car = this.car;
         const k = car.turboIntensity;
         this.k = k;
-        const dt = delta / 1000;
+        const dt = Math.min(delta / 1000, 0.1);
 
         // --- Pós-processamento ---
         if (this.filters) {
@@ -354,25 +356,7 @@ export default class TurboFX {
             );
         }
 
-        // --- Câmera ---
-        // Zoom pra trás = mais mundo entrando na tela. Note que este é o
-        // único efeito da lista que AUMENTA o que você enxerga, então ele
-        // subiu um pouco justamente pra compensar os outros que desceram.
-        const targetZoom = this.baseZoom - TUNING.zoomOut * k;
-        this.cam.zoom += (targetZoom - this.cam.zoom) * Math.min(1, 6 * dt);
-
-        // Tremor menor: sacudir a tela enquanto o jogador está mirando uma
-        // curva é o tipo de "juice" que atrapalha mais do que entrega.
-        const rumble = TUNING.rumble * k + 5 * this.heatShake;
-        if (rumble > 0.05) {
-            this.cam.setFollowOffset(
-                Phaser.Math.FloatBetween(-rumble, rumble),
-                Phaser.Math.FloatBetween(-rumble, rumble)
-            );
-        } else {
-            this.cam.setFollowOffset(0, 0);
-        }
-        this.heatShake = Math.max(0, this.heatShake - dt * 2.4);
+        this.updateCamera(dt, k);
 
         // --- Escapamento ---
         const ex = this.exhaustX();
@@ -470,6 +454,37 @@ export default class TurboFX {
         if (this.container) {
             this.container.style.setProperty('--turbo', k.toFixed(3));
         }
+    }
+
+    updateCamera(dt, k = this.car.turboIntensity) {
+        const car = this.car;
+        // --- Câmera ---
+        // Zoom pra trás = mais mundo entrando na tela. Note que este é o
+        // único efeito da lista que AUMENTA o que você enxerga, então ele
+        // subiu um pouco justamente pra compensar os outros que desceram.
+        const roadSpeed = Phaser.Math.Clamp((car.body.speed - 100) / 400, 0, 1);
+        const targetZoom = this.baseZoom - 0.035 * roadSpeed - TUNING.zoomOut * k;
+        this.cam.zoom += (targetZoom - this.cam.zoom) * (1 - Math.exp(-5 * dt));
+
+        // Antecipação pela velocidade real: abre espaço para enxergar a
+        // próxima curva, inclusive quando o carro está deslizando de lado.
+        const lookFactor = car.controlsEnabled ? Math.min(0.16, 70 / Math.max(1, car.body.speed)) : 0;
+        const cameraResponse = 1 - Math.exp(-4 * dt);
+        this.lookX += (-car.body.velocity.x * lookFactor - this.lookX) * cameraResponse;
+        this.lookY += (-car.body.velocity.y * lookFactor - this.lookY) * cameraResponse;
+
+        // Tremor menor: sacudir a tela enquanto o jogador está mirando uma
+        // curva é o tipo de "juice" que atrapalha mais do que entrega.
+        const rumble = TUNING.rumble * k + 5 * this.heatShake;
+        if (rumble > 0.05) {
+            this.cam.setFollowOffset(
+                this.lookX + Phaser.Math.FloatBetween(-rumble, rumble),
+                this.lookY + Phaser.Math.FloatBetween(-rumble, rumble)
+            );
+        } else {
+            this.cam.setFollowOffset(this.lookX, this.lookY);
+        }
+        this.heatShake = Math.max(0, this.heatShake - dt * 2.4);
     }
 
     destroy() {

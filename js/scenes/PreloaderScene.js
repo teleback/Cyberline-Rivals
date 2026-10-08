@@ -1,9 +1,11 @@
+import { loadMusic } from '../fx/Music.js';
 import { loadCarSkins, prepareCarSkins } from '../objects/CarSkins.js';
 
 class Preloader extends Phaser.Scene {
     constructor() { super('Preloader'); }
 
     preload() {
+        loadMusic(this, 'race');
         const { width, height } = this.scale;
         this.cameras.main.setBackgroundColor('#111319');
         this.add.rectangle(width/2, height/2, 320, 24).setStrokeStyle(1, 0xffffff);

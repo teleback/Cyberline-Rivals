@@ -85,7 +85,7 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
                 connectTimeout: 8000,
                 keepalive: 20,
                 resubscribe: true,
-                queueQoSZero: true,
+                queueQoSZero: false,
                 will: {
                     topic: this.playerTopic,
                     qos: 1,

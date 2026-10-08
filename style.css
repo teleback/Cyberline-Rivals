@@ -71,7 +71,7 @@ body {
 
 #touch-controls {
     --tc-size: clamp(120px, 30vmin, 180px);   /* diâmetro do joystick */
-    --tc-turbo: clamp(68px, 17vmin, 96px);    /* botão compacto, área de toque confortável */
+    --tc-turbo: clamp(76px, 18vmin, 100px);   /* alvo confortável para o polegar direito */
     --tc-edge: clamp(14px, 4vmin, 36px);      /* distância da borda da tela */
     position: fixed;
     inset: 0;
@@ -83,34 +83,71 @@ body {
     display: none;
 }
 
-/* Metade esquerda da tela = área do joystick (ele nasce sob o dedo). */
+/* Área do joystick fixo no canto inferior esquerdo. */
 #touch-controls .tc-zone {
     position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 55%;
+    left: calc(env(safe-area-inset-left, 0px) + var(--tc-edge));
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tc-edge));
+    width: var(--tc-size);
+    height: var(--tc-size);
     pointer-events: auto;
     touch-action: none;
 }
 
 #touch-controls .tc-stick {
     position: absolute;
-    /* Posição de descanso (antes do primeiro toque). */
-    left: calc(env(safe-area-inset-left, 0px) + var(--tc-edge));
-    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tc-edge));
+    left: 0;
+    bottom: 0;
+    box-sizing: border-box;
     width: var(--tc-size);
     height: var(--tc-size);
     border-radius: 50%;
     border: 2px solid rgba(0, 229, 255, 0.5);
     background: radial-gradient(circle, rgba(0, 229, 255, 0.14), rgba(0, 229, 255, 0.03) 70%);
     box-shadow: 0 0 18px rgba(0, 229, 255, 0.25), inset 0 0 18px rgba(0, 229, 255, 0.12);
-    opacity: 0.35;              /* discreto em repouso (não atrapalha o minimapa) */
+    opacity: 0.6;
     transition: opacity 0.12s;
     pointer-events: none;
 }
 #touch-controls .tc-stick.tc-active {
-    opacity: 1;
+    opacity: 0.85;
+}
+#touch-controls .tc-stick::before,
+#touch-controls .tc-stick::after {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 13px;
+    color: rgba(170, 239, 255, 0.7);
+}
+#touch-controls .tc-stick::before {
+    content: '↑';
+    top: 4px;
+}
+#touch-controls .tc-stick::after {
+    content: '↓';
+    bottom: 4px;
+}
+#touch-controls .tc-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    color: rgba(170, 239, 255, 0.7);
+}
+#touch-controls .tc-arrow-left { left: 4px; }
+#touch-controls .tc-arrow-right { right: 4px; }
+#touch-controls .tc-stick.tc-throttle {
+    border-color: #6cf1df;
+    box-shadow: 0 0 18px rgba(65, 239, 199, 0.3);
+}
+#touch-controls .tc-stick.tc-braking {
+    border-color: #ff897d;
+    box-shadow: 0 0 18px rgba(255, 100, 90, 0.3);
+}
+#touch-controls .tc-stick.tc-braking .tc-knob {
+    border-color: #ff897d;
+    background: radial-gradient(circle at 35% 30%, #ffd1ba, rgba(255, 110, 90, 0.45));
 }
 
 #touch-controls .tc-knob {
@@ -124,14 +161,22 @@ body {
     border: 2px solid #00e5ff;
     background: radial-gradient(circle at 35% 30%, rgba(160, 250, 255, 0.85), rgba(0, 229, 255, 0.35));
     box-shadow: 0 0 14px rgba(0, 229, 255, 0.7);
+    will-change: transform;
 }
 
-#touch-controls .tc-turbo {
+#touch-controls .tc-pedals {
     position: absolute;
     right: calc(env(safe-area-inset-right, 0px) + var(--tc-edge));
     bottom: calc(env(safe-area-inset-bottom, 0px) + var(--tc-edge));
+    display: grid;
+    grid-template-columns: repeat(2, var(--tc-turbo));
+    gap: 10px;
+    pointer-events: none;
+}
+#touch-controls .tc-pedal {
     width: var(--tc-turbo);
     height: var(--tc-turbo);
+    padding: 0;
     border-radius: 24%;
     display: flex;
     align-items: center;
@@ -149,11 +194,38 @@ body {
     pointer-events: auto;
     touch-action: none;
 }
-#touch-controls .tc-turbo.tc-active {
+#touch-controls .tc-pedal.tc-active {
     opacity: 1;
     color: #fff;
     background: linear-gradient(135deg, rgba(41, 207, 255, 0.3), rgba(255, 57, 212, 0.45));
     box-shadow: 0 0 20px rgba(255, 57, 212, 0.55), inset 0 0 12px rgba(41, 207, 255, 0.3);
+}
+#touch-controls .tc-turbo {
+    grid-column: 2;
+    grid-row: 1;
+    height: calc(var(--tc-turbo) * 0.68);
+}
+#touch-controls .tc-accelerate {
+    grid-column: 2;
+    grid-row: 2;
+    border-color: #60e5c0;
+    background: rgba(30, 140, 110, 0.22);
+    font-size: clamp(7px, 1.7vmin, 10px);
+}
+#touch-controls .tc-brake {
+    grid-column: 1;
+    grid-row: 2;
+    border-color: #ff897d;
+    background: rgba(160, 55, 45, 0.22);
+    line-height: 1.6;
+}
+#touch-controls .tc-accelerate.tc-active {
+    background: rgba(35, 170, 125, 0.55);
+    box-shadow: 0 0 18px rgba(65, 239, 199, 0.45);
+}
+#touch-controls .tc-brake.tc-active {
+    background: rgba(190, 65, 50, 0.55);
+    box-shadow: 0 0 18px rgba(255, 110, 90, 0.45);
 }
 
 /* --- Aviso "gire o celular" ---------------------------------------------- */

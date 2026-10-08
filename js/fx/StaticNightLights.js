@@ -25,7 +25,8 @@ export default class StaticNightLights {
         this.chunks = indexLightChunks(sources);
         this.cache = new Map();
         this.glowTexture = glowTexture;
-        this.container = scene.add.container(0, 0).setDepth(1701);
+        // Keep map lights under the night wash so no patch bypasses its tint.
+        this.container = scene.add.container(0, 0).setDepth(1699);
         scene.events.once('shutdown', () => this.destroy());
     }
 
@@ -33,7 +34,9 @@ export default class StaticNightLights {
         const textureKey = `night-block-${key}`;
         const texture = this.scene.textures.createCanvas(textureKey, CHUNK_SIZE, CHUNK_SIZE);
         const context = texture.getContext();
-        context.globalCompositeOperation = 'lighter';
+        // Alpha blending preserves artwork hues instead of adding the same
+        // bright pixels twice and bleaching signs or overlapping halos.
+        context.globalCompositeOperation = 'source-over';
         for (const light of chunk.lights) {
             const image = this.scene.textures.get(this.glowTexture(light.color)).getSourceImage();
             context.globalAlpha = 0.26;
@@ -54,7 +57,7 @@ export default class StaticNightLights {
         }
         texture.refresh();
         const image = this.scene.add.image(chunk.x, chunk.y, textureKey)
-            .setOrigin(0).setBlendMode(Phaser.BlendModes.ADD);
+            .setOrigin(0).setBlendMode(Phaser.BlendModes.NORMAL);
         this.container.add(image);
         return { image, textureKey };
     }

@@ -3,8 +3,7 @@ export function carLightPose(car) {
         y: car.y - Math.cos(car.rotation) * 48 * car.scaleY, rotation: car.rotation };
 }
 
-// Three pooled images per car: headlights, colored underglow and a subtle
-// body highlight. Their depths stay below the Tiled foreground scenery.
+// Luzes reutilizadas por carro, abaixo dos elementos de primeiro plano.
 export default class CarLighting {
     constructor(scene, car, glowTexture, color) {
         this.car = car;
@@ -17,7 +16,9 @@ export default class CarLighting {
             .setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.62);
         this.highlight = scene.add.image(car.x, car.y, car.texture.key, car.frame.name)
             .setDepth(car.depth + 0.1).setBlendMode(Phaser.BlendModes.ADD);
-        this.worldObjects = [this.headlights, this.underglow, this.highlight];
+        this.tailLights = [-1, 1].map(() => scene.add.image(car.x, car.y, glowTexture([255, 46, 58]))
+            .setDepth(car.depth + 0.2).setBlendMode(Phaser.BlendModes.ADD));
+        this.worldObjects = [this.headlights, this.underglow, this.highlight, ...this.tailLights];
         this.update();
     }
 
@@ -65,6 +66,15 @@ export default class CarLighting {
         this.highlight.setPosition(car.x, car.y).setRotation(car.rotation)
             .setScale(car.scaleX, car.scaleY).setFlip(car.flipX, car.flipY)
             .setTint(car.tintTopLeft).setAlpha(car.alpha * 0.12);
+        const braking = car.isBraking ?? car.networkControls?.braking;
+        const sin = Math.sin(car.rotation), cos = Math.cos(car.rotation);
+        this.tailLights.forEach((light, index) => {
+            const side = index === 0 ? -21 : 21;
+            light.setPosition(car.x - sin * 50 * car.scaleY + cos * side * car.scaleX,
+                car.y + cos * 50 * car.scaleY + sin * side * car.scaleX)
+                .setDisplaySize((braking ? 34 : 20) * car.scaleX, (braking ? 34 : 20) * car.scaleY)
+                .setAlpha(car.alpha * (braking ? 0.78 : 0.24));
+        });
     }
 
     destroy() {

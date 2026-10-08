@@ -1,3 +1,4 @@
+import { playMusic } from '../fx/Music.js';
 import { readGamepad } from "../input/GamepadInput.js";
 import RoomPresence, { PRESENCE_TIMEOUT } from "../input/RoomPresence.js";
 
@@ -19,6 +20,7 @@ class RoomSelectionScene extends Phaser.Scene {
   }
 
   create(data = {}) {
+    playMusic(this, 'lobby');
     this.playerNick = data.playerNick || this.getSavedNickname() || "PILOTO";
     this.playerId = data.playerId || this.getPlayerId();
     this.selectedRoom = this.getSavedSelectedRoom();

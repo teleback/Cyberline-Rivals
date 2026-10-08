@@ -1,3 +1,4 @@
+import { playMusic } from '../fx/Music.js';
 import { onAnyButton } from '../input/GamepadInput.js';
 
 class MenuJogar extends Phaser.Scene {
@@ -10,6 +11,7 @@ class MenuJogar extends Phaser.Scene {
     }
 
     create() {
+        playMusic(this, 'lobby');
         const { width, height } = this.scale;
 
         this.add.image(width / 2, height / 2, 'bgMenuJogar')

@@ -1,4 +1,4 @@
-// Controles de toque (celular/tablet): joystick virtual + botão TURBO.
+// Controles de toque (celular/tablet): joystick fixo + pedais + botão TURBO.
 //
 // Feito em HTML por cima do canvas, e não dentro do Phaser, de propósito:
 //  - multitoque de verdade: polegar esquerdo no joystick e o direito no
@@ -7,27 +7,22 @@
 //  - fica nos cantos da TELA, mesmo quando o jogo (800x450) tem tarjas
 //    pretas nas laterais.
 //
-// Além dos botões, entrega steering (-1..1) para direção proporcional.
-//
-// Mapeamento (igual ao teclado):
-//   joystick ← →    virar
-//   joystick ↑      acelerar
-//   joystick ↓      freio / ré      (↓ + lado = drift)
-//   botão TURBO     turbo (já acelera junto, não precisa segurar ↑)
+// O joystick indica uma direção na tela, independente da orientação do carro.
+// Qualquer direção acelera; baixo aponta para baixo, sem engatar freio/ré.
+// Centralizar ou soltar encerra a aceleração. Os pedais continuam independentes.
 //
 // Só aparece em aparelho de toque. Para testar no computador, abra o jogo
 // com ?touch=1 na URL (e ?touch=0 força desligado).
 
-const state = { left: false, right: false, up: false, down: false, turbo: false, steering: 0 };
+const state = { left: false, right: false, up: false, down: false,
+    turbo: false, accelerate: false, pedalBrake: false, steering: 0, heading: null };
 
-// Curva progressiva: pequenas correções não viram o volante inteiro.
-const DEAD_X = 0.18;
-// Limiares distintos para ligar/soltar evitam oscilar com o tremor do dedo.
-// Frear exige um gesto maior, para não entrar em drift sem querer na curva.
-const THROTTLE_ON = 0.4;
-const THROTTLE_OFF = 0.25;
-const BRAKE_ON = 0.65;
-const BRAKE_OFF = 0.45;
+// Zona neutra radial pequena, com histerese para filtrar tremores no centro.
+const DIRECTION_ON = 0.25;
+const DIRECTION_OFF = 0.16;
+// Curso do polegar menor que o círculo visual, sem ficar enorme em tablets.
+const MIN_TRAVEL = 48;
+const MAX_TRAVEL = 60;
 
 let touchSeen = false;
 let root = null;
@@ -36,9 +31,12 @@ let stick = null;
 let knob = null;
 let turboBtn = null;
 let stickPointer = null;
-let turboPointer = null;
+const pedalPointers = new Map();
+const pedalButtons = new Map();
+const pedalPress = new Map();
 let center = { x: 0, y: 0 };
 let radius = 60;
+let visualTravel = 35;
 
 const params = new URLSearchParams(window.location.search);
 
@@ -69,31 +67,80 @@ function clamp(v, min, max) {
 }
 
 function releaseStick() {
+    const pointer = stickPointer;
     stickPointer = null;
+    if (pointer !== null && zone?.hasPointerCapture?.(pointer)) zone.releasePointerCapture(pointer);
     state.left = state.right = state.up = state.down = false;
     state.steering = 0;
+    state.heading = null;
     if (knob) knob.style.transform = '';
     if (stick) {
         stick.classList.remove('tc-active');
-        // Volta pra posição de descanso definida no CSS.
-        stick.style.left = '';
-        stick.style.top = '';
-        stick.style.bottom = '';
+        stick.classList.remove('tc-throttle', 'tc-braking');
     }
+    updateFeedback();
 }
 
-function releaseTurbo() {
-    turboPointer = null;
-    state.turbo = false;
-    if (turboBtn) turboBtn.classList.remove('tc-active');
+function releasePedal(field) {
+    const pointer = pedalPointers.get(field);
+    const button = pedalButtons.get(field);
+    pedalPointers.delete(field);
+    if (pointer !== undefined && button?.hasPointerCapture?.(pointer)) button.releasePointerCapture(pointer);
+    state[field] = false;
+    button?.classList.remove('tc-active');
+    updateFeedback();
 }
 
 function releaseAll() {
     releaseStick();
-    releaseTurbo();
+    for (const field of pedalButtons.keys()) releasePedal(field);
+}
+
+function updateFeedback() {
+    if (!stick) return;
+    const braking = state.down || state.pedalBrake;
+    stick.classList.toggle('tc-throttle', (state.up || state.accelerate || state.turbo) && !braking);
+    stick.classList.toggle('tc-braking', braking);
+}
+
+function bindPedal(button, field) {
+    pedalButtons.set(field, button);
+    const press = pointer => {
+        pedalPointers.set(field, pointer);
+        button.setPointerCapture(pointer);
+        button.classList.add('tc-active');
+        state[field] = true;
+        updateFeedback();
+    };
+    pedalPress.set(field, press);
+    button.addEventListener('pointerdown', e => {
+        if (root.hidden || pedalPointers.has(field) || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        e.preventDefault();
+        press(e.pointerId);
+    });
+    // O polegar direito pode deslizar entre acelerar, frear e turbo sem
+    // precisar levantar. A captura continua no pedal que recebeu o gesto.
+    button.addEventListener('pointermove', e => {
+        if (pedalPointers.get(field) !== e.pointerId) return;
+        for (const [otherField, otherButton] of pedalButtons) {
+            if (otherField === field || pedalPointers.has(otherField)) continue;
+            const rect = otherButton.getBoundingClientRect();
+            if (e.clientX >= rect.left && e.clientX <= rect.right
+                && e.clientY >= rect.top && e.clientY <= rect.bottom) {
+                releasePedal(field);
+                pedalPress.get(otherField)(e.pointerId);
+                break;
+            }
+        }
+    });
+    const end = e => { if (pedalPointers.get(field) === e.pointerId) releasePedal(field); };
+    for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(event, end);
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
 }
 
 function updateStick(e) {
+    // O centro é sempre o do anel fixo, inclusive em arrastos para fora.
     const rawX = e.clientX - center.x;
     const rawY = e.clientY - center.y;
     let dx = rawX;
@@ -103,18 +150,20 @@ function updateStick(e) {
         dx *= radius / dist;
         dy *= radius / dist;
     }
-    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    // O desenho fica dentro do anel; o curso lógico continua independente
+    // por eixo para acelerar e virar ao mesmo tempo.
+    const visualScale = visualTravel / radius;
+    knob.style.transform = `translate(${dx * visualScale}px, ${dy * visualScale}px)`;
 
-    // Limita só o desenho ao círculo. Ler os eixos independentemente evita
-    // perder aceleração quando o dedo se afasta para fazer uma curva.
-    const nx = clamp(rawX / radius, -1, 1);
-    const ny = clamp(rawY / radius, -1, 1);
-    const amount = Math.max(0, (Math.abs(nx) - DEAD_X) / (1 - DEAD_X));
-    state.steering = Math.sign(nx) * Math.pow(amount, 1.5);
-    state.left = state.steering < 0;
-    state.right = state.steering > 0;
-    state.up = ny < -(state.up ? THROTTLE_OFF : THROTTLE_ON);
-    state.down = ny > (state.down ? BRAKE_OFF : BRAKE_ON);
+    const active = dist / radius > (state.heading === null ? DIRECTION_ON : DIRECTION_OFF);
+    // Sprite do carro aponta para cima em rotation=0.
+    state.heading = active ? Math.atan2(rawX, -rawY) : null;
+    state.steering = active ? clamp(rawX / radius, -1, 1) : 0;
+    state.left = active && rawX < 0;
+    state.right = active && rawX > 0;
+    state.up = active;
+    state.down = false;
+    updateFeedback();
 }
 
 function build() {
@@ -122,10 +171,14 @@ function build() {
     root.id = 'touch-controls';
     root.hidden = true;
     root.innerHTML = `
-        <div class="tc-zone">
-            <div class="tc-stick"><div class="tc-knob"></div></div>
+        <div class="tc-zone" role="group" aria-label="Direção: aponte o joystick para onde quer ir; solte para parar de acelerar">
+            <div class="tc-stick"><span class="tc-arrow tc-arrow-left" aria-hidden="true">←</span><span class="tc-arrow tc-arrow-right" aria-hidden="true">→</span><div class="tc-knob"></div></div>
         </div>
-        <div class="tc-turbo">TURBO</div>
+        <div class="tc-pedals">
+            <button class="tc-pedal tc-turbo" type="button" aria-label="Turbo e aceleração">TURBO</button>
+            <button class="tc-pedal tc-brake" type="button" aria-label="Frear e manter para dar ré">FREIO<br>RÉ</button>
+            <button class="tc-pedal tc-accelerate" type="button" aria-label="Acelerar">ACELERAR</button>
+        </div>
     `;
     document.body.appendChild(root);
 
@@ -137,28 +190,23 @@ function build() {
     // Sem menu de "segurar pra copiar/salvar imagem" no meio da corrida.
     root.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // --- Joystick "flutuante" ---------------------------------------------
-    // A metade esquerda da tela inteira é a área de toque: o joystick nasce
-    // embaixo do dedo, onde ele tocar. Ninguém precisa acertar um círculo
-    // pequeno no meio da corrida.
+    // --- Joystick fixo -----------------------------------------------------
+    // O gesto começa no círculo visível. A captura mantém o controle mesmo
+    // se o polegar sair dele; voltar ao centro sempre neutraliza a direção.
     zone.addEventListener('pointerdown', (e) => {
-        if (stickPointer !== null) return;
+        if (root.hidden || stickPointer !== null || (e.pointerType === 'mouse' && e.button !== 0)) return;
+        const bounds = stick.getBoundingClientRect();
+        const size = bounds.width;
+        const fixedCenter = { x: bounds.left + size / 2, y: bounds.top + bounds.height / 2 };
+        if (Math.hypot(e.clientX - fixedCenter.x, e.clientY - fixedCenter.y) > size / 2) return;
         e.preventDefault();
         stickPointer = e.pointerId;
         zone.setPointerCapture(e.pointerId);
 
-        radius = stick.offsetWidth / 2;
-        const bounds = zone.getBoundingClientRect();
-        // O ponto inicial é sempre neutro, inclusive junto às bordas.
-        // Deslocar o centro para caber o círculo acionava comandos no toque.
-        center = {
-            x: e.clientX,
-            y: e.clientY,
-        };
+        radius = clamp(size * 0.4, MIN_TRAVEL, MAX_TRAVEL);
+        visualTravel = size * 0.29;
+        center = fixedCenter;
         stick.classList.add('tc-active');
-        stick.style.left = `${center.x - radius - bounds.left}px`;
-        stick.style.top = `${center.y - radius - bounds.top}px`;
-        stick.style.bottom = 'auto';
         updateStick(e);
     });
     zone.addEventListener('pointermove', (e) => {
@@ -170,22 +218,12 @@ function build() {
     zone.addEventListener('pointerup', endStick);
     zone.addEventListener('pointercancel', endStick);
     zone.addEventListener('lostpointercapture', endStick);
+    window.addEventListener('pointerup', endStick);
+    window.addEventListener('pointercancel', endStick);
 
-    // --- Turbo -------------------------------------------------------------
-    turboBtn.addEventListener('pointerdown', (e) => {
-        if (turboPointer !== null) return;
-        e.preventDefault();
-        turboPointer = e.pointerId;
-        turboBtn.setPointerCapture(e.pointerId);
-        turboBtn.classList.add('tc-active');
-        state.turbo = true;
-    });
-    const endTurbo = (e) => {
-        if (e.pointerId === turboPointer) releaseTurbo();
-    };
-    turboBtn.addEventListener('pointerup', endTurbo);
-    turboBtn.addEventListener('pointercancel', endTurbo);
-    turboBtn.addEventListener('lostpointercapture', endTurbo);
+    bindPedal(turboBtn, 'turbo');
+    bindPedal(root.querySelector('.tc-accelerate'), 'accelerate');
+    bindPedal(root.querySelector('.tc-brake'), 'pedalBrake');
 
     // Trocou de app/aba com o dedo apertado: solta tudo, senão o carro
     // ficaria acelerando sozinho quando o jogo voltasse.
@@ -213,16 +251,18 @@ export function hideTouchControls() {
     if (root) root.hidden = true;
 }
 
-/** Botões atuais e direção analógica (-1..1). */
+/** Botões atuais e orientação desejada na tela (radianos, null no centro). */
 export function readTouch() {
     return {
         left: state.left,
         right: state.right,
         steering: state.steering,
+        heading: state.heading,
         // O botão TURBO já acelera: o Car só liga o turbo com o acelerador
         // apertado, e o polegar direito não deve precisar de dois botões.
-        up: (state.up || state.turbo) && !state.down,
-        down: state.down,
+        up: (state.up || state.accelerate || state.turbo) && !(state.down || state.pedalBrake),
+        down: state.down || state.pedalBrake,
         turbo: state.turbo,
+        mobile: !!root && !root.hidden,
     };
 }

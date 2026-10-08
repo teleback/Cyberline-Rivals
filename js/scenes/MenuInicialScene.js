@@ -1,3 +1,4 @@
+import { loadMusic, playMusic } from '../fx/Music.js';
 import { onAnyButton } from "../input/GamepadInput.js";
 class MenuInicial extends Phaser.Scene {
   constructor() {
@@ -5,10 +6,12 @@ class MenuInicial extends Phaser.Scene {
   }
 
   preload() {
+    loadMusic(this, 'lobby');
     this.load.image("bgMenuInicial", "assets/images/ui/menuinicial.png");
   }
 
   create() {
+    playMusic(this, 'lobby');
     const { width, height } = this.scale;
 
     this.add

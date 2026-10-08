@@ -1,3 +1,5 @@
+import TrackCollisions, { wallShapes } from '../objects/TrackCollisions.js';
+import { playMusic, stopMusic } from '../fx/Music.js';
 import Car from "../objects/Car.js";
 import { getCarSkin } from "../objects/CarSkins.js";
 import TurboFX from "../fx/TurboFX.js";
@@ -18,6 +20,7 @@ import {
   hideTouchControls,
 } from "../input/TouchControls.js";
 import MQTTClient from "../MQTTClient.js";
+import { pushRemoteMotion, sampleRemoteMotion, resetRemoteMotion } from "../objects/RemoteMotion.js";
 
 class Race extends Phaser.Scene {
   constructor() {
@@ -25,6 +28,9 @@ class Race extends Phaser.Scene {
   }
 
   create(data = {}) {
+    playMusic(this, 'lobby');
+    this.events.once('shutdown', () => stopMusic(this));
+    this.crashFeedbackAfter = 0;
     // A seleção feita antes da corrida define a aparência do carro.
     // O `carSkin` fica no objeto de cena para podermos sincronizá-lo
     // depois com o multiplayer MQTT.
@@ -169,18 +175,12 @@ class Race extends Phaser.Scene {
     // Colisões desenhadas no Tiled. São DUAS camadas de objetos:
     //  - "colisao": as 4 paredes externas do mapa;
     //  - "colisoes pista": os muros/limites da pista em si (642 objetos).
-    // Antes só a primeira era lida, então a pista inteira ficava sem
-    // colisão. Agora as duas viram corpos estáticos invisíveis.
-    this.walls = this.physics.add.staticGroup();
+    // Os contatos usam segmentos contínuos e busca espacial, sem centenas
+    // de corpos estáticos sobrepostos nos cantos.
+    this.wallShapes = [];
     ["colisao", "colisoes pista"].forEach((name) =>
       this.createWallsFromLayer(name),
     );
-    // Bater na parede em pleno turbo tem que custar: mata a turbina,
-    // queima parte do tanque e sacode a tela. Sem isso, o turbo vira
-    // "segurar SHIFT e raspar no muro", que é a forma mais rápida de
-    // matar a graça de um jogo de corrida. (Um collider só, com callback
-    // — dois colliders pro mesmo par resolveriam a colisão duas vezes.)
-    this.physics.add.collider(this.car, this.walls, () => this.onCrash());
     this.createBoostSensors();
     this.createCheckpoints();
 
@@ -200,6 +200,7 @@ class Race extends Phaser.Scene {
     );
     this.createObstacles();
     this.createOilZones();
+    this.trackCollisions = new TrackCollisions(this, this.wallShapes);
     this.brickCollectibles = new BrickCollectibles(this);
 
     this.buildHud();
@@ -338,6 +339,7 @@ class Race extends Phaser.Scene {
         lap: this.currentLap,
         checkpointIndex: this.checkpointIndex,
         ts: Date.now(),
+        motionTime: now,
         ...publishExtra,
       },
       { retain, qos: force ? 1 : 0 },
@@ -419,9 +421,9 @@ class Race extends Phaser.Scene {
         existingRemote.clockOffset = smoothedOffset;
         existingRemote.roundTripMs = roundTripMs;
         existingRemote.interpolationDelay = Phaser.Math.Clamp(
-          45 + existingRemote.arrivalJitter * 1.2 + roundTripMs * 0.18,
-          45,
-          140,
+          80 + existingRemote.arrivalJitter * 1.2,
+          80,
+          180,
         );
       }
       this.pendingClockProbes.delete(response.nonce);
@@ -447,6 +449,8 @@ class Race extends Phaser.Scene {
       sprite.body.setCircle(24, 25.5, 56);
       sprite.body.setImmovable(true);
       sprite.body.setAllowGravity(false);
+      // Only the network renderer moves the rival; Arcade must not integrate it.
+      sprite.body.moves = false;
       const collider = this.physics.add.collider(this.car, sprite);
       collider.active = false;
 
@@ -512,7 +516,7 @@ class Race extends Phaser.Scene {
       remote.roundId = null;
       remote.completedLaps = 0;
       remote.startAt = null;
-      remote.stateBuffer.length = 0;
+      resetRemoteMotion(remote);
       remote.vx = 0;
       remote.vy = 0;
       remote.angularVelocity = 0;
@@ -528,9 +532,9 @@ class Race extends Phaser.Scene {
       );
       remote.arrivalJitter += (intervalJitter - remote.arrivalJitter) * 0.125;
       remote.interpolationDelay = Phaser.Math.Clamp(
-        45 + remote.arrivalJitter * 1.2 + (remote.roundTripMs || 0) * 0.18,
-        45,
-        140,
+        80 + remote.arrivalJitter * 1.2,
+        80,
+        180,
       );
     }
     remote.lastPacketAt = receivedAt;
@@ -574,6 +578,7 @@ class Race extends Phaser.Scene {
         angle: -Math.PI / 2,
         time: receivedAt,
         timestamp: incomingTs,
+        motionTime: state.motionTime,
       });
     } else {
       remote.vx = Number.isFinite(Number(state.vx)) ? Number(state.vx) : 0;
@@ -593,6 +598,7 @@ class Race extends Phaser.Scene {
             : -Math.PI / 2,
           time: receivedAt,
           timestamp: incomingTs,
+          motionTime: state.motionTime,
           vx: remote.vx,
           vy: remote.vy,
           angularVelocity: remote.angularVelocity,
@@ -608,6 +614,7 @@ class Race extends Phaser.Scene {
     if (state.nick) remote.nick = state.nick;
     this.brickCollectibles?.receiveNetworkState(state);
     remote.networkControls = state.controls || remote.networkControls;
+    remote.sprite.networkControls = remote.networkControls;
     remote.turboIntensity = Phaser.Math.Clamp(
       Number(state.turboIntensity) || 0,
       0,
@@ -628,8 +635,7 @@ class Race extends Phaser.Scene {
   }
 
   pushRemoteState(remote, state) {
-    remote.stateBuffer.push(state);
-    if (remote.stateBuffer.length > 16) remote.stateBuffer.shift();
+    pushRemoteMotion(remote, state);
   }
 
   updateRemotePlayers() {
@@ -642,67 +648,9 @@ class Race extends Phaser.Scene {
         return;
       }
 
-      const buffer = remote.stateBuffer;
-      if (!buffer.length) return;
-
-      const renderAt = nowPerformance - remote.interpolationDelay;
-      while (buffer.length > 2 && buffer[1].time <= renderAt) buffer.shift();
-
-      const first = buffer[0];
-      const second = buffer[1];
-      const latest = buffer[buffer.length - 1];
-      let x, y, angle;
-
-      if (nowPerformance - remote.lastPacketAt > 200) {
-        // Sem pacotes por mais de 200 ms: usa o estado mais recente
-        // imediatamente para evitar o efeito de “snapshots a cada 100ms”.
-        x = latest.x;
-        y = latest.y;
-        angle = latest.angle;
-      } else if (renderAt <= first.time) {
-        x = first.x;
-        y = first.y;
-        angle = first.angle;
-      } else if (second && renderAt <= second.time) {
-        const span = Math.max(1, second.time - first.time);
-        const factor = Phaser.Math.Clamp((renderAt - first.time) / span, 0, 1);
-        const angleDiff = Phaser.Math.Angle.Wrap(second.angle - first.angle);
-        const t2 = factor * factor;
-        const t3 = t2 * factor;
-        const h00 = 2 * t3 - 3 * t2 + 1;
-        const h10 = t3 - 2 * t2 + factor;
-        const h01 = -2 * t3 + 3 * t2;
-        const h11 = t3 - t2;
-        const spanSeconds = span / 1000;
-        const interpolateHermite = (p0, p1, v0, v1) => {
-          const value =
-            h00 * p0 +
-            h10 * (v0 || 0) * spanSeconds +
-            h01 * p1 +
-            h11 * (v1 || 0) * spanSeconds;
-          // Limita oscilações caso a velocidade de um pacote esteja
-          // fora de escala em relação às posições vizinhas.
-          const margin = Math.abs(p1 - p0) * 0.15 + 2;
-          return Phaser.Math.Clamp(
-            value,
-            Math.min(p0, p1) - margin,
-            Math.max(p0, p1) + margin,
-          );
-        };
-        x = interpolateHermite(first.x, second.x, first.vx, second.vx);
-        y = interpolateHermite(first.y, second.y, first.vy, second.vy);
-        angle = first.angle + angleDiff * factor;
-      } else {
-        // Predição curta cobre o intervalo entre pacotes sem deixar o
-        // carro avançar indefinidamente durante uma perda de conexão.
-        const extrapolateSeconds =
-          Math.min(100, Math.max(0, renderAt - latest.time)) / 1000;
-        x = latest.x + (latest.vx || 0) * extrapolateSeconds;
-        y = latest.y + (latest.vy || 0) * extrapolateSeconds;
-        angle =
-          latest.angle +
-          (latest.angularVelocity || 0) * (Math.PI / 180) * extrapolateSeconds;
-      }
+      const pose = sampleRemoteMotion(remote, nowPerformance);
+      if (!pose) return;
+      const { x, y, angle } = pose;
 
       remote.sprite.setPosition(x, y);
       remote.sprite.rotation = angle;
@@ -825,6 +773,7 @@ class Race extends Phaser.Scene {
         this.countdown?.cancel();
         this.countdown = null;
         this.startCountdownStarted = false;
+        playMusic(this, 'lobby');
       }
       if (this.raceStartAt !== null) {
         const isCoordinator =
@@ -854,6 +803,7 @@ class Race extends Phaser.Scene {
     if (this.startCountdownStarted || !this.raceStartAt || !this.hasReadyPair())
       return;
     this.startCountdownStarted = true;
+    playMusic(this, 'lobby', 0.07);
     try {
       this.countdown = new StartCountdown(this);
       this.countdown.play(() => {
@@ -890,6 +840,7 @@ class Race extends Phaser.Scene {
     this.brickCollectibles.startRace({ roundId: this.raceRoundId, coordinatorId,
       participantIds: [this.playerId, opponent.id] });
     this.raceTimerStarted = true;
+    playMusic(this, 'race');
     this.raceStartTime = this.time.now;
     this.raceElapsedMs = 0;
     this.updateRaceTimerHud();
@@ -908,56 +859,34 @@ class Race extends Phaser.Scene {
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(centiseconds).padStart(2, "0")}`;
   }
 
-  // Cria os corpos estáticos de colisão a partir de uma camada de objetos
-  // do Tiled. Tratamento de cada tipo de objeto:
-  //  - retângulo normal: vira um corpo retangular do mesmo tamanho;
-  //  - "ponto" (largura e altura ~0, feito com um clique só no Tiled — a
-  //    pista tem ~550 desses, formando as curvas): vira um círculo de
-  //    raio POINT_RADIUS. Como estão ~22px um do outro, os círculos se
-  //    sobrepõem e formam um muro contínuo;
-  //  - retângulo fino demais (uma dimensão ~0): ganha espessura mínima,
-  //    senão o carro atravessaria.
+  // Mantém os limites originais do Tiled com superfícies contínuas.
   createWallsFromLayer(layerName) {
     const layer = this.map.getObjectLayer(layerName);
     if (!layer) {
-      console.warn(
-        `[Race] Camada de colisão "${layerName}" não encontrada no Tiled.`,
-      );
+      console.warn(`[Race] Camada de colisão "${layerName}" não encontrada.`);
       return;
     }
-    const POINT_RADIUS = 14;
-    const MIN_THICKNESS = 4;
-
-    layer.objects.forEach((obj) => {
-      const w = obj.width || 0;
-      const h = obj.height || 0;
-      const isPoint = w < 2 && h < 2;
-
-      let cx, cy, bw, bh;
-      if (isPoint) {
-        cx = obj.x;
-        cy = obj.y;
-        bw = bh = POINT_RADIUS * 2;
-      } else {
-        bw = Math.max(w, MIN_THICKNESS);
-        bh = Math.max(h, MIN_THICKNESS);
-        cx = obj.x + w / 2;
-        cy = obj.y + h / 2;
-      }
-
-      const wall = this.add.rectangle(cx, cy, bw, bh);
-      wall.setVisible(false);
-      this.physics.add.existing(wall, true);
-      if (isPoint) wall.body.setCircle(POINT_RADIUS);
-      this.walls.add(wall);
-    });
+    this.wallShapes.push(...wallShapes(layer.objects));
   }
 
-  onCrash() {
-    if (this.car.turboIntensity < 0.25) return;
-    this.car.turboSpool = 0;
-    this.car.turboFuel = Math.max(0, this.car.turboFuel - 22);
-    this.cameras.main.shake(180, 0.011);
+  onCrash(impactSpeed, contact) {
+    const now = this.time.now;
+    if (now < (this.crashFeedbackAfter || 0)) return;
+    const severity = impactSpeed ?? Math.max(0,
+      this.car.lastDriveSpeed - this.car.body.velocity.length());
+    if (severity < 50) return;
+    this.crashFeedbackAfter = now + 550;
+    if (this.car.isTurboActive || this.car.turboIntensity > 0.25) {
+      this.car.turboSpool = 0;
+      this.car.isTurboActive = false;
+      this.car.turboIntensity *= 0.45;
+      this.car.turboFuel = Math.max(0, this.car.turboFuel - 12);
+      this.car._turboBlockedUntil = now + 600;
+      this.car._rechargeAfter = now + this.car.turboRechargeDelay;
+      this.car.emit('turbo-stop');
+    }
+    this.carFX?.crash(severity, contact);
+    this.cameras.main.shake(130, Math.min(0.005, severity / 100000));
   }
 
   // ------------------------------------------------------------------
@@ -1009,12 +938,7 @@ class Race extends Phaser.Scene {
       obstacle.groundY = spot.y + (92 - 48);
     });
 
-    // Um collider só (com callback), do mesmo jeito que a colisão com
-    // as paredes: dois colliders pro mesmo par resolveriam a física
-    // duas vezes e disparariam o efeito em dobro.
-    this.physics.add.collider(this.car, this.obstacles, (car, obstacle) => {
-      this.onObstacleHit(obstacle);
-    });
+    // TrackCollisions resolve os contatos sem uma segunda separação do Arcade.
   }
 
   // Ordem de desenho barril x carro (top-down com barril "em pé"):
@@ -1038,39 +962,26 @@ class Race extends Phaser.Scene {
     });
   }
 
-  onObstacleHit(obstacle) {
+  onObstacleHit(obstacle, impactSpeed = this.car.body.speed) {
     const now = this.time.now;
     if (now < obstacle.hitCooldownUntil) return;
     obstacle.hitCooldownUntil = now + 700;
 
-    // Só pune de verdade se o carro vinha com alguma velocidade —
-    // encostar de leve, quase parado, não devia contar como batida.
-    if (this.car.body.speed < 40) return;
-
-    // O impacto tira uma boa parte da velocidade na hora — sem isso
-    // o obstáculo vira decoração que o carro atravessa raspando.
-    this.car.body.velocity.scale(0.45);
-    this.car.turboSpool = 0;
-    this.car.turboFuel = Math.max(0, this.car.turboFuel - 18);
-
-    this.cameras.main.shake(200, 0.014);
+    if (impactSpeed < 40) return;
 
     // Feedback no próprio obstáculo: pisca vermelho e sacode um pouco.
     this.tweens.killTweensOf(obstacle);
     obstacle.setTint(0xff6b6b);
     this.tweens.add({
       targets: obstacle,
-      angle: obstacle.angle + Phaser.Math.Between(-6, 6),
-      duration: 90,
+      angle: obstacle.angle + Phaser.Math.Between(-9, 9),
+      scaleX: 0.93,
+      scaleY: 0.96,
+      duration: 110,
       yoyo: true,
       ease: "Quad.easeOut",
       onComplete: () => obstacle.clearTint(),
     });
-
-    // Reaproveita as faíscas do turbo pra não criar outro emissor.
-    if (this.fx && this.fx.sparks) {
-      this.fx.sparks.explode(18, this.car.x, this.car.y);
-    }
   }
 
   // ------------------------------------------------------------------
@@ -1091,7 +1002,8 @@ class Race extends Phaser.Scene {
       { x: 4896, y: 1888, tex: "zonaoleo2" },
       { x: 480, y: 2144, tex: "zonaoleo" },
       { x: 2400, y: 2720, tex: "zonaoleo2" },
-      { x: 5664, y: 3168, tex: "zonaoleo" },
+      // Dois tiles após a placa 8, antes da curva para a reta de chegada.
+      { x: 5664, y: 3296, tex: "zonaoleo" },
       { x: 3616, y: 3488, tex: "zonaoleo2" },
     ];
 
@@ -1616,6 +1528,7 @@ class Race extends Phaser.Scene {
   finishRace() {
     if (this.raceFinished) return;
     this.raceFinished = true;
+    stopMusic(this);
     this.currentLap = this.totalLaps;
     this.lapLabel.setText(`VOLTA ${this.totalLaps} / ${this.totalLaps}`);
 
@@ -1755,7 +1668,6 @@ class Race extends Phaser.Scene {
     const world = [
       ...this.mapLayers,
       this.car,
-      ...this.walls.getChildren(),
       ...this.obstacles.getChildren(),
       this.oilVisuals,
       this.boostVisuals,
@@ -1764,6 +1676,8 @@ class Race extends Phaser.Scene {
       ...this.fx.worldObjects,
       this.carFX.smoke,
       this.carFX.dust,
+      this.carFX.impact,
+      this.carFX.impactFlash,
       ...this.carFX.marks,
       ...(this.oilFX ? this.oilFX.worldObjects : []),
       ...this.nightLighting.worldObjects,

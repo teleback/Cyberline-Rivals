@@ -42,6 +42,31 @@ O jogo não possui personagens jogáveis tradicionais, mas sim pilotos represent
   * Mini mapa da pista.
   * Botões virtuais para acelerar, frear e virar (dispositivos móveis).
 
+## Condução
+
+Seta para cima acelera; para baixo freia e, mantendo pressionada depois de
+parar, engata a ré. Freio e direção juntos em velocidade iniciam um drift;
+solte o freio e acelere para recuperar a aderência na saída da curva. Shift
+com aceleração aciona o turbo. O freio tem prioridade se ambos forem apertados.
+
+O controle padrão usa direção analógica; o controle SNES usa o D-pad e os
+botões L (aceleração) e R (turbo). No celular, aponte o joystick fixo para
+onde quer ir na tela: esquerda, direita, cima, baixo ou diagonais. O carro
+acelera e se orienta nessa direção; segurar o gesto mantém o rumo sem girar
+continuamente. Centralizar ou soltar encerra a aceleração e o giro.
+Use os pedais **ACELERAR**, **FREIO/RÉ** e **TURBO** à direita; mantenha
+FREIO/RÉ pressionado para recuar. Puxar o joystick para baixo aponta o carro
+para baixo. O mesmo polegar pode deslizar entre os pedais. A direção tem mais
+aderência, reduz a velocidade nas curvas fechadas e não inicia drift ao frear.
+Comece o gesto no círculo do canto inferior esquerdo. Os ajustes de aceleração,
+pneus, frenagem, resposta direcional e ré ficam em `js/objects/CarHandling.js`.
+
+As colisões com meio-fio conservam o movimento ao longo da parede e aplicam
+um recuo pequeno. Os pontos do mapa formam superfícies contínuas, e os
+contatos são verificados ao longo do deslocamento para impedir que um boost
+atravesse paredes finas. Barris desviam o carro nas batidas frontais e têm
+uma animação curta de impacto, sem reduzir repetidamente toda a velocidade.
+
 ## Tijolinhos e resultado da corrida
 
 - Cada tijolinho coletado na pista vale **1 tijolinho**. A coleta é compartilhada: quando um piloto pega, o outro não pode pegar o mesmo tijolinho naquela volta.

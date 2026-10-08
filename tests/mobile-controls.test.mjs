@@ -7,7 +7,12 @@ class Element {
     hidden = false;
     offsetWidth = 120;
     listeners = new Map();
-    classList = { add() {}, remove() {} };
+    classes = new Set();
+    classList = {
+        add: (...names) => names.forEach(name => this.classes.add(name)),
+        remove: (...names) => names.forEach(name => this.classes.delete(name)),
+        toggle: (name, enabled) => enabled ? this.classes.add(name) : this.classes.delete(name),
+    };
     addEventListener(name, fn) {
         const listeners = this.listeners.get(name) || [];
         listeners.push(fn);
@@ -18,14 +23,23 @@ class Element {
             fn({ pointerId: 1, clientX: 100, clientY: 100, preventDefault() {}, ...values });
         }
     }
-    setPointerCapture() {}
+    captured = new Set();
+    setPointerCapture(id) { this.captured.add(id); }
+    hasPointerCapture(id) { return this.captured.has(id); }
+    releasePointerCapture(id) { this.captured.delete(id); }
     getBoundingClientRect() { return { left: 0, top: 0, right: 440, bottom: 450 }; }
     querySelector(selector) { return elements[selector]; }
 }
 
 const elements = Object.fromEntries(
-    ['.tc-zone', '.tc-stick', '.tc-knob', '.tc-turbo'].map(name => [name, new Element()])
+    ['.tc-zone', '.tc-stick', '.tc-knob', '.tc-turbo', '.tc-accelerate', '.tc-brake'].map(name => [name, new Element()])
 );
+let joystickCenter = { x: 100, y: 100 };
+elements['.tc-stick'].getBoundingClientRect = () => {
+    const size = elements['.tc-stick'].offsetWidth;
+    return { left: joystickCenter.x - size / 2, top: joystickCenter.y - size / 2,
+        width: size, height: size, right: joystickCenter.x + size / 2, bottom: joystickCenter.y + size / 2 };
+};
 globalThis.window = Object.assign(new Element(), {
     location: { search: '?touch=1' },
     matchMedia: () => ({ matches: true }),
@@ -44,8 +58,11 @@ globalThis.Phaser = {
 
 const { showTouchControls, hideTouchControls, readTouch } = await import('../js/input/TouchControls.js');
 const { default: Car } = await import('../js/objects/Car.js');
+const { createHandlingState } = await import('../js/objects/CarHandling.js');
 const zone = elements['.tc-zone'];
 const turbo = elements['.tc-turbo'];
+const accelerate = elements['.tc-accelerate'];
+const brake = elements['.tc-brake'];
 showTouchControls();
 
 function gesture(x, y, originX = 100, originY = 100) {
@@ -58,7 +75,7 @@ function makeCar() {
     const car = Object.create(Car.prototype);
     Object.assign(car, {
         controlsEnabled: true,
-        _touchSteering: 0,
+        handling: createHandlingState(),
         cursors: Object.fromEntries(['left', 'right', 'up', 'down'].map(key => [key, { isDown: false }])),
         scene: { physics: { velocityFromRotation: (_angle, speed, target) => {
             if (target) Object.assign(target, { x: 0, y: -speed });
@@ -68,25 +85,21 @@ function makeCar() {
         body: {
             speed: 390,
             maxVelocity: { x: 390 },
-            velocity: { dot: () => 390 },
+            velocity: { x: 0, y: -390, dot: () => 390,
+                length() { return Math.hypot(this.x, this.y); } },
             acceleration: { set() {} },
         },
-        turnSpeed: 230,
-        minTurnFactor: 0.35,
-        driftMinSpeedFactor: 0.45,
-        driftTurnBoost: 1.35,
         turboSpool: 0,
-        normalGrip: 0.05,
         acceleration: 500,
+        maxDriveSpeed: 390,
         updateTurbo() {},
-        applyGrip() {},
         setAngularVelocity(value) { this.angularVelocity = value; },
-        setVelocity() {},
+        setVelocity(x, y) { Object.assign(this.body.velocity, { x, y }); },
     });
     return car;
 }
 
-test('edge touches start neutral and small thumb movements stay neutral', () => {
+test('touches outside the fixed circle are ignored and small centered movements stay neutral', () => {
     for (const [x, y] of [[1, 449], [439, 1], [100, 100]]) {
         gesture(0, 0, x, y);
         assert.equal(readTouch().steering, 0);
@@ -97,32 +110,42 @@ test('edge touches start neutral and small thumb movements stay neutral', () => 
     assert.equal(readTouch().steering, 0);
 });
 
-test('steering is proportional and diagonal turns preserve acceleration', () => {
-    gesture(30, -30);
-    const gentle = readTouch();
-    assert.ok(gentle.steering > 0 && gentle.steering < 0.5);
-    assert.equal(gentle.up, true);
-    zone.emit('pointermove', { clientX: 300, clientY: 70 });
-    assert.equal(readTouch().steering, 1);
-    assert.equal(readTouch().up, true);
-    gesture(-60, 0);
-    assert.equal(readTouch().steering, -1);
+test('joystick points in all screen directions and accelerates without braking', () => {
+    for (const [x, y, heading] of [[0, -48, 0], [48, 0, Math.PI / 2],
+        [0, 48, Math.PI], [-48, 0, -Math.PI / 2], [48, -48, Math.PI / 4]]) {
+        gesture(x, y);
+        assert.ok(Math.abs(readTouch().heading - heading) < 1e-9);
+        assert.equal(readTouch().up, true);
+        assert.equal(readTouch().down, false);
+    }
 });
 
-test('throttle and brake resist jitter; braking requires deliberate movement', () => {
-    gesture(0, -30);
-    zone.emit('pointermove', { clientY: 79 });
-    assert.equal(readTouch().up, true);
-    zone.emit('pointermove', { clientY: 90 });
+test('heading follows changes during one gesture and centering clears the target', () => {
+    gesture(0, -48);
+    zone.emit('pointermove', { clientX: 148, clientY: 100 });
+    assert.equal(readTouch().heading, Math.PI / 2);
+    zone.emit('pointermove', { clientX: 100, clientY: 148 });
+    assert.equal(readTouch().heading, Math.PI);
+    zone.emit('pointermove', { clientX: 52, clientY: 100 });
+    assert.equal(readTouch().heading, -Math.PI / 2);
+    zone.emit('pointermove', { clientX: 100, clientY: 100 });
+    assert.equal(readTouch().heading, null);
     assert.equal(readTouch().up, false);
-    gesture(60, 30);
-    assert.equal(readTouch().down, false);
-    zone.emit('pointermove', { clientX: 160, clientY: 145 });
-    assert.equal(readTouch().down, true);
-    zone.emit('pointermove', { clientX: 160, clientY: 133 });
-    assert.equal(readTouch().down, true);
-    zone.emit('pointermove', { clientX: 160, clientY: 120 });
-    assert.equal(readTouch().down, false);
+});
+
+test('radial neutral zone filters jitter and long drags preserve the fixed center', () => {
+    gesture(8, 0);
+    assert.equal(readTouch().heading, null);
+    zone.emit('pointermove', { clientX: 113, clientY: 100 });
+    assert.equal(readTouch().heading, Math.PI / 2);
+    zone.emit('pointermove', { clientX: 109, clientY: 100 });
+    assert.equal(readTouch().up, true);
+    zone.emit('pointermove', { clientX: 107, clientY: 100 });
+    assert.equal(readTouch().heading, null);
+    zone.emit('pointermove', { clientX: 400, clientY: 100 });
+    assert.equal(readTouch().heading, Math.PI / 2);
+    zone.emit('pointermove', { clientX: 100, clientY: 100 });
+    assert.equal(readTouch().heading, null);
 });
 
 test('multitouch turbo works with steering, and deliberate braking takes priority', () => {
@@ -132,30 +155,111 @@ test('multitouch turbo works with steering, and deliberate braking takes priorit
     zone.emit('pointerup', { pointerId: 3 });
     assert.ok(readTouch().steering > 0);
     zone.emit('pointermove', { clientY: 145 });
+    assert.equal(readTouch().down, false);
+    brake.emit('pointerdown', { pointerId: 3 });
     assert.equal(readTouch().down, true);
     assert.equal(readTouch().up, false);
     turbo.emit('pointerup', { pointerId: 2 });
+    brake.emit('pointerup', { pointerId: 3 });
     assert.equal(readTouch().turbo, false);
 });
 
-test('car smoothly applies analog steering with the same response at 30 and 120 FPS', () => {
-    gesture(60, -60);
-    const slow = makeCar();
-    const fast = makeCar();
-    for (let frame = 0; frame < 3; frame++) slow.update(0, 1000 / 30);
-    for (let frame = 0; frame < 12; frame++) fast.update(0, 1000 / 120);
-    assert.ok(Math.abs(slow.angularVelocity - fast.angularVelocity) < 1e-9);
-    assert.ok(fast.angularVelocity > 0 && fast.angularVelocity < 230);
-    gesture(30, -60);
-    const gentle = makeCar();
-    gentle.update(0, 100);
-    assert.ok(gentle.angularVelocity < fast.angularVelocity / 2);
+test('extra fingers cannot steal the joystick and releases outside the touch zone clear capture', () => {
+    gesture(30, -30);
+    const before = readTouch();
+    zone.emit('pointerdown', { pointerId: 3, clientX: 400, clientY: 300 });
+    zone.emit('pointermove', { pointerId: 3, clientX: 200, clientY: 100 });
+    assert.deepEqual(readTouch(), before);
+    turbo.emit('pointerdown', { pointerId: 2 });
+    assert.ok(zone.hasPointerCapture(1));
+    assert.ok(turbo.hasPointerCapture(2));
+    window.emit('pointerup', { pointerId: 1 });
+    assert.equal(zone.hasPointerCapture(1), false);
+    assert.equal(readTouch().steering, 0);
+    assert.equal(readTouch().turbo, true);
+    window.emit('pointercancel', { pointerId: 2 });
+    assert.equal(turbo.hasPointerCapture(2), false);
+    assert.equal(readTouch().turbo, false);
+});
+
+test('hidden controls reject new gestures and visual brake feedback resets on release', () => {
+    gesture(0, 45);
+    brake.emit('pointerdown', { pointerId: 2 });
+    assert.ok(elements['.tc-stick'].classes.has('tc-braking'));
+    hideTouchControls();
+    assert.equal(elements['.tc-stick'].classes.has('tc-braking'), false);
+    zone.emit('pointerdown');
+    zone.emit('pointermove', { clientX: 200, clientY: 40 });
+    turbo.emit('pointerdown', { pointerId: 2 });
+    assert.equal(readTouch().up, false);
+    assert.equal(readTouch().turbo, false);
+    showTouchControls();
+});
+
+test('car uses screen heading, stops turning on release and allows keyboard override', () => {
+    gesture(48, 0);
+    const car = makeCar();
+    car.rotation = Math.PI / 2;
+    car.update(0, 1000 / 60);
+    assert.equal(car.angularVelocity, 0, 'holding right does not keep spinning once facing right');
+    car.rotation = Math.PI;
+    car.update(0, 1000 / 60);
+    assert.ok(car.angularVelocity < 0, 'right target turns left when the car faces down');
     zone.emit('pointerup');
-    fast.update(0, 1000 / 60);
-    assert.equal(fast.angularVelocity, 0);
-    fast.cursors.left.isDown = true;
-    fast.update(0, 1000 / 60);
-    assert.equal(fast.angularVelocity, -230);
+    car.update(0, 1000 / 60);
+    assert.ok(car.angularVelocity === 0);
+    gesture(48, 0);
+    car.rotation = 0;
+    car.body.velocity.x = 0;
+    car.body.velocity.y = -390;
+    car.cursors.right.isDown = true;
+    car.update(0, 1000 / 60);
+    assert.ok(car.angularVelocity > 0, 'keyboard takes priority over the touch target');
+    zone.emit('pointerup');
+});
+
+test('separate pedals allow steering, braking and reverse gestures independently', () => {
+    gesture(30, 0);
+    accelerate.emit('pointerdown', { pointerId: 2 });
+    assert.equal(readTouch().up, true);
+    zone.emit('pointerup');
+    assert.equal(readTouch().up, true, 'releasing steering does not release the accelerator pedal');
+    brake.emit('pointerdown', { pointerId: 3 });
+    assert.equal(readTouch().down, true);
+    assert.equal(readTouch().up, false);
+    assert.ok(elements['.tc-stick'].classes.has('tc-braking'));
+    brake.emit('pointerup', { pointerId: 3 });
+    assert.equal(readTouch().up, true);
+    accelerate.emit('pointerup', { pointerId: 2 });
+    assert.equal(readTouch().up, false);
+});
+
+test('the same thumb can slide from acceleration to brake without lifting or leaving a stuck pedal', () => {
+    accelerate.getBoundingClientRect = () => ({ left: 700, top: 340, right: 780, bottom: 420 });
+    brake.getBoundingClientRect = () => ({ left: 610, top: 340, right: 690, bottom: 420 });
+    turbo.getBoundingClientRect = () => ({ left: 700, top: 280, right: 780, bottom: 330 });
+    accelerate.emit('pointerdown', { pointerId: 2, clientX: 740, clientY: 380 });
+    accelerate.emit('pointermove', { pointerId: 2, clientX: 650, clientY: 380 });
+    assert.equal(readTouch().up, false);
+    assert.equal(readTouch().down, true);
+    assert.equal(accelerate.hasPointerCapture(2), false);
+    assert.equal(brake.hasPointerCapture(2), true);
+    brake.emit('pointermove', { pointerId: 2, clientX: 740, clientY: 300 });
+    assert.equal(readTouch().down, false);
+    assert.equal(readTouch().turbo, true);
+    window.emit('pointerup', { pointerId: 2 });
+    assert.equal(readTouch().turbo, false);
+    assert.equal(readTouch().up, false);
+});
+
+test('app interruption releases every pedal, including a held reverse button', () => {
+    accelerate.emit('pointerdown', { pointerId: 2 });
+    brake.emit('pointerdown', { pointerId: 3 });
+    window.emit('blur');
+    assert.equal(readTouch().up, false);
+    assert.equal(readTouch().down, false);
+    assert.equal(accelerate.hasPointerCapture(2), false);
+    assert.equal(brake.hasPointerCapture(3), false);
 });
 
 test('cancel, capture loss, blur, resize, tab hiding and scene exit reset controls', () => {

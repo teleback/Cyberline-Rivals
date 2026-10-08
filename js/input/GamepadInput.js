@@ -149,11 +149,11 @@ function decodeHat(v) {
     ][idx] || null;
 }
 
-// Lê o estado atual: { left, right, up, down, turbo, any }
+// Lê o estado atual: { left, right, up, down, steering, turbo, any }
 // (up = acelerar, down = freio/ré)
 export function readGamepad() {
     const pad = getPad();
-    const state = { left: false, right: false, up: false, down: false, turbo: false, any: false };
+    const state = { left: false, right: false, up: false, down: false, steering: 0, turbo: false, any: false };
     if (!pad) return state;
 
     if (step >= 0) {
@@ -163,10 +163,11 @@ export function readGamepad() {
 
     const ax = pad.axes[0] || 0;
     const ay = pad.axes[1] || 0;
+    const axisDeadzone = pad.mapping === 'standard' ? 0.14 : DEADZONE;
 
     // 1) D-pad como eixos 0 e 1 (comum em controle SNES USB genérico)
-    state.left = ax < -DEADZONE;
-    state.right = ax > DEADZONE;
+    state.left = ax < -axisDeadzone;
+    state.right = ax > axisDeadzone;
     state.up = ay < -DEADZONE;
     state.down = ay > DEADZONE;
 
@@ -194,6 +195,14 @@ export function readGamepad() {
     // Botões: L acelera (além do D-pad para cima), R é o turbo
     state.up = state.up || pressed(pad, mapped.acelerar);
     state.turbo = pressed(pad, mapped.turbo);
+    // Controles padrão mantêm a intensidade do analógico; o D-pad e os
+    // controles SNES genéricos continuam com o curso completo do volante.
+    const digitalLeft = btn(14) || (state.left && ax >= -axisDeadzone);
+    const digitalRight = btn(15) || (state.right && ax <= axisDeadzone);
+    if (digitalLeft || digitalRight) state.steering = Number(digitalRight) - Number(digitalLeft);
+    else if (pad.mapping === 'standard' && Math.abs(ax) > axisDeadzone) {
+        state.steering = Math.sign(ax) * Math.min(1, (Math.abs(ax) - axisDeadzone) / (1 - axisDeadzone));
+    } else state.steering = Number(state.right) - Number(state.left);
     state.any = pressed(pad, BUTTONS.confirmar);
     return state;
 }

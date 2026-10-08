@@ -1,3 +1,4 @@
+import { playMusic } from '../fx/Music.js';
 import { readGamepad } from '../input/GamepadInput.js';
 import { CAR_SKINS, loadCarSkins, prepareCarSkins } from '../objects/CarSkins.js';
 
@@ -12,6 +13,7 @@ class CarSelectionScene extends Phaser.Scene {
     }
 
     create(data = {}) {
+        playMusic(this, 'lobby');
         prepareCarSkins(this);
         this.playerNick = data.playerNick || 'PILOTO';
         this.playerId = data.playerId || this.getPlayerId();

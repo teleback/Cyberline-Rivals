@@ -10,7 +10,8 @@ export default class CarFX {
         this.lastMarkY = car.y;
         this.previousSpeed = 0;
         this.launchUntil = 0;
-        this.markDuration = 2800;
+        this.markDuration = 4200;
+        this.impactUntil = 0;
 
         this.createTexture();
         this.createEmitters();
@@ -38,6 +39,7 @@ export default class CarFX {
             tint: [0xb9c3cf, 0x6e7885, 0xffffff],
             frequency: 24,
             quantity: 1,
+            maxAliveParticles: 55,
             emitting: false
         }).setDepth(985);
 
@@ -50,8 +52,18 @@ export default class CarFX {
             tint: [0xc49b72, 0xf0c28a, 0x8b6a52],
             frequency: 34,
             quantity: 2,
+            maxAliveParticles: 24,
             emitting: false
         }).setDepth(984);
+
+        this.impact = this.scene.add.particles(0, 0, 'fx-dot', {
+            lifespan: { min: 130, max: 300 }, speed: { min: 70, max: 210 },
+            scale: { start: 0.18, end: 0 }, alpha: { start: 0.85, end: 0 },
+            tint: [0xffd083, 0xff9b45, 0xffffff], blendMode: 'ADD',
+            emitting: false, maxAliveParticles: 20,
+        }).setDepth(1002);
+        this.impactFlash = this.scene.add.image(this.car.x, this.car.y, this.car.texture.key)
+            .setDepth(1001).setBlendMode('ADD').setTint(0xffd3a1).setAlpha(0).setVisible(false);
 
         for (let i = 0; i < 64; i++) {
             const mark = this.scene.add.image(0, 0, 'fx-tire-mark')
@@ -66,20 +78,26 @@ export default class CarFX {
     update(delta) {
         const now = this.scene.time.now;
         const speed = this.car.body.speed;
-        const braking = this.car.cursors.down.isDown && speed > 110;
+        const enabled = this.car.controlsEnabled !== false;
+        const impactFade = Math.max(0, (this.impactUntil - now) / 220);
+        this.impactFlash.setVisible(impactFade > 0)
+            .setPosition(this.car.x, this.car.y).setRotation(this.car.rotation)
+            .setScale(1 + 0.035 * impactFade).setAlpha(0.36 * impactFade);
+        const braking = enabled && this.car.isBraking && speed > 110;
         const sliding = this.car.isDrifting && speed > 85;
-        const launching = this.car.cursors.up.isDown
-            && speed > 55
+        const launching = enabled && this.car.networkControls.throttle
+            && speed > 35
             && this.previousSpeed < 25;
         if (launching) this.launchUntil = now + 650;
         this.previousSpeed = speed;
 
-        const sharpTurn = Math.abs(this.car.body.angularVelocity) > 125 && speed > 105;
-        const marking = now < this.launchUntil || sharpTurn || sliding || braking;
+        const tireLoad = this.car.tireSlip > 0.13 && speed > 120;
+        const marking = enabled && (now < this.launchUntil || tireLoad || sliding || braking);
 
         for (let i = 0; i < this.marks.length; i++) {
             const mark = this.marks[i];
             if (mark.visible && now >= mark.expiresAt) mark.setVisible(false);
+            else if (mark.visible) mark.setAlpha(0.72 * Math.min(1, (mark.expiresAt - now) / 1400));
         }
 
         const forward = this.scene.physics.velocityFromRotation(
@@ -88,8 +106,8 @@ export default class CarFX {
         );
         const rear = forward.clone().scale(-1);
         const side = new Phaser.Math.Vector2(-forward.y, forward.x);
-        const rearX = this.car.x + rear.x * 19;
-        const rearY = this.car.y + rear.y * 19;
+        const rearX = this.car.x + rear.x * 34;
+        const rearY = this.car.y + rear.y * 34;
         const rearAngle = Phaser.Math.RadToDeg(Math.atan2(rear.y, rear.x));
 
         if (marking) {
@@ -101,8 +119,7 @@ export default class CarFX {
         }
         this.smoke.emitting = marking;
         this.smoke.frequency = sliding || braking ? 16 : 24;
-        this.dust.emitting = sliding || braking;
-        this.dust.frequency = sliding ? 16 : 38;
+        this.dust.emitting = enabled && now < this.launchUntil;
 
         if (!marking) {
             this.markDistance = 0;
@@ -125,8 +142,8 @@ export default class CarFX {
         this.markDistance = 0;
 
         const markLength = sliding || braking ? 20 : 15;
-        const wheelLong = 5;
-        const wheelLat = 11;
+        const wheelLong = 0;
+        const wheelLat = 22;
         const leftX = rearX + rear.x * wheelLong + side.x * wheelLat;
         const leftY = rearY + rear.y * wheelLong + side.y * wheelLat;
         const rightX = rearX + rear.x * wheelLong - side.x * wheelLat;
@@ -139,8 +156,10 @@ export default class CarFX {
         const mark = this.marks[this.markCursor];
         this.markCursor = (this.markCursor + 1) % this.marks.length;
         mark.setPosition(x, y);
-        mark.setRotation(this.car.rotation);
-        mark.setDisplaySize(8, length);
+        const velocity = this.car.body.velocity;
+        mark.setRotation(Math.atan2(velocity.y, velocity.x) + Math.PI / 2);
+        mark.setDisplaySize(6, length);
+        mark.setAlpha(0.72);
         mark.expiresAt = this.scene.time.now + this.markDuration;
         mark.setVisible(true);
     }
@@ -148,6 +167,15 @@ export default class CarFX {
     destroy() {
         this.smoke.destroy();
         this.dust.destroy();
+        this.impact.destroy();
+        this.impactFlash.destroy();
         this.marks.forEach((mark) => mark.destroy());
+    }
+
+    crash(speed, contact) {
+        this.impactUntil = this.scene.time.now + 220;
+        const forward = this.scene.physics.velocityFromRotation(this.car.rotation - Math.PI / 2, 1);
+        this.impact.explode(Math.min(16, Math.round(speed / 32)),
+            contact?.x ?? this.car.x + forward.x * 44, contact?.y ?? this.car.y + forward.y * 44);
     }
 }
