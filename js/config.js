@@ -3,7 +3,7 @@ var config = {
     width: 800,
     height: 450,
     fps: {
-        target: 10,
+        target: 60,
         forceSetTimeOut: false
     },
     parent: 'game-container',

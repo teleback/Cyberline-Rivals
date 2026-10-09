@@ -22,6 +22,8 @@ import {
 import MQTTClient from "../MQTTClient.js";
 import { pushRemoteMotion, sampleRemoteMotion, resetRemoteMotion } from "../objects/RemoteMotion.js";
 
+const REMOTE_TIMEOUT = 5000;
+
 class Race extends Phaser.Scene {
   constructor() {
     super("Race");
@@ -48,6 +50,8 @@ class Race extends Phaser.Scene {
     this.localCarReady = false;
     this.raceStartAt = null;
     this.startCountdownStarted = false;
+    this.countdownStartAt = null;
+    this.countdownFallbackTimer = null;
     this.startAlignmentComplete = false;
     this.startAlignmentTween = null;
     this.pendingClockProbes = new Map();
@@ -234,9 +238,8 @@ class Race extends Phaser.Scene {
       onLand: () => this.onLocalCarReady(),
     });
 
-    // MQTT: entra na sala escolhida e passa a publicar/receber a posição
-    // dos pilotos. O estado de cada jogador é retido pelo broker, então
-    // quem entrar alguns segundos depois ainda recebe o carro adversário.
+    // Descobre os pilotos pelas mensagens ao vivo. Estados retidos de uma
+    // corrida anterior não podem ocupar a sala nem reposicionar o rival.
     this.initMultiplayer();
 
     this.input.keyboard.on("keydown-M", () => {
@@ -249,6 +252,7 @@ class Race extends Phaser.Scene {
   async initMultiplayer() {
     this.multiplayer.on("status", (status) => {
       console.log(`[MQTT] sala ${this.roomId}: ${status}`);
+      if (this.multiplayer?.connected) this.publishNetworkState(true, true);
       this.updateLobbyStatus();
     });
 
@@ -353,11 +357,16 @@ class Race extends Phaser.Scene {
       ? Number(state.ts)
       : null;
     const knownRemote = this.remotePlayers[state.id];
+    if (knownRemote?.retiredSessions?.has(state.sessionId)) return;
     const newRemoteSession =
       knownRemote &&
       state.sessionId &&
       knownRemote.sessionId &&
       state.sessionId !== knownRemote.sessionId;
+    // Uma aba reiniciada não pertence à corrida que já está em andamento.
+    // Pacotes da sessão antiga e da nova não podem alternar o mesmo sprite.
+    if (newRemoteSession && (this.raceTimerStarted || state.online === false)) return;
+    if (this.raceTimerStarted && 'roundId' in state && state.roundId !== this.raceRoundId) return;
     // MQTT sequence also orders packets sent in the same millisecond.
     const incomingSeq = Number.isSafeInteger(state.seq) && state.seq > 0 ? state.seq : null;
     if (knownRemote && !newRemoteSession) {
@@ -368,6 +377,8 @@ class Race extends Phaser.Scene {
       }
     }
     if (newRemoteSession) {
+      knownRemote.retiredSessions ??= new Set();
+      knownRemote.retiredSessions.add(knownRemote.sessionId);
       knownRemote.lastMessageTs = 0;
       knownRemote.lastMessageSeq = 0;
     }
@@ -438,7 +449,7 @@ class Race extends Phaser.Scene {
     if (!remote && Object.keys(this.remotePlayers).length >= 1) return;
     if (!remote) {
       const initialX = this.finishLineX;
-      const initialY = this.startLineY + (this.playerSlot === 0 ? 84 : -84);
+      const initialY = this.startLineY + (this.playerId.localeCompare(state.id) < 0 ? 84 : -84);
       const tint = Number.isFinite(state.tint) ? state.tint : 0xffffff;
       const sprite = this.physics.add
         .image(initialX, initialY, getCarSkin(state.skin).texture)
@@ -470,6 +481,7 @@ class Race extends Phaser.Scene {
       remote = this.remotePlayers[state.id] = {
         id: state.id,
         sessionId: state.sessionId || null,
+        retiredSessions: new Set(),
         sprite,
         label,
         collider,
@@ -493,7 +505,7 @@ class Race extends Phaser.Scene {
         roundId: null,
         completedLaps: 0,
         skin: getCarSkin(state.skin).id,
-        lastPacketAt: performance.now(),
+        lastPacketAt: null,
         interpolationDelay: 80,
         arrivalJitter: 0,
         lastSeen: Date.now(),
@@ -520,13 +532,21 @@ class Race extends Phaser.Scene {
       remote.vx = 0;
       remote.vy = 0;
       remote.angularVelocity = 0;
+      remote.arrivalJitter = 0;
+      remote.lastPacketAt = null;
+      this.clockOffsets.delete(state.id);
+      this.networkRoundTrips.delete(state.id);
+      remote.clockOffset = 0;
+      remote.roundTripMs = 0;
     }
     remote.sessionId = state.sessionId || remote.sessionId;
     if (incomingTs !== null) remote.lastMessageTs = incomingTs;
     if (incomingSeq !== null) remote.lastMessageSeq = incomingSeq;
     const receivedAt = performance.now();
+    const hasMotion = Number.isFinite(state.x) && Number.isFinite(state.y) &&
+      Number.isFinite(state.rotation);
     const packetInterval = receivedAt - remote.lastPacketAt;
-    if (packetInterval > 0 && packetInterval < 2000) {
+    if (hasMotion && remote.lastPacketAt !== null && packetInterval > 0 && packetInterval < 2000) {
       const intervalJitter = Math.abs(
         packetInterval - this.networkSendInterval,
       );
@@ -537,28 +557,29 @@ class Race extends Phaser.Scene {
         180,
       );
     }
-    remote.lastPacketAt = receivedAt;
+    if (hasMotion) remote.lastPacketAt = receivedAt;
     remote.online = true;
     remote.lastSeen = Date.now();
-    remote.ready = state.ready === true;
-    remote.roundId = typeof state.roundId === "string" ? state.roundId : null;
-    remote.finished = state.finished === true && remote.roundId === this.raceRoundId;
-    remote.completedLaps = Number.isInteger(state.completedLaps)
-      ? Math.max(0, Math.min(this.totalLaps, state.completedLaps)) : 0;
-    remote.lap = Math.max(1, Number(state.lap) || 1);
-    remote.checkpointIndex = Number.isInteger(state.checkpointIndex) ? state.checkpointIndex : null;
-    remote.finishElapsedMs =
-      typeof state.finishElapsedMs === "number" &&
-      Number.isFinite(state.finishElapsedMs) && state.finishElapsedMs >= 0
-        ? Number(state.finishElapsedMs)
-        : null;
-    remote.startAt =
-      typeof state.startAt === "number" && Number.isFinite(state.startAt)
-        ? state.startAt
-        : null;
+    // Presença de reconexão não inclui pose nem informações da corrida.
+    // Só os campos publicados podem mudar ready/start/voltas já confirmados.
+    if (typeof state.ready === 'boolean') remote.ready = state.ready;
+    if ('roundId' in state) remote.roundId = typeof state.roundId === "string" ? state.roundId : null;
+    if (typeof state.finished === 'boolean') {
+      remote.finished = state.finished && remote.roundId === this.raceRoundId;
+    }
+    if (Number.isInteger(state.completedLaps)) {
+      remote.completedLaps = Math.max(0, Math.min(this.totalLaps, state.completedLaps));
+    }
+    if (Number.isFinite(state.lap)) remote.lap = Math.max(1, state.lap);
+    if (Number.isInteger(state.checkpointIndex)) remote.checkpointIndex = state.checkpointIndex;
+    if ('finishElapsedMs' in state) {
+      remote.finishElapsedMs = Number.isFinite(state.finishElapsedMs) && state.finishElapsedMs >= 0
+        ? state.finishElapsedMs : null;
+    }
+    if ('startAt' in state) remote.startAt = Number.isFinite(state.startAt) ? state.startAt : null;
 
     const isCoordinator = this.playerId.localeCompare(state.id) < 0;
-    if (!isCoordinator) {
+    if (!isCoordinator && !this.raceTimerStarted) {
       this.raceStartAt =
         remote.startAt === null ? null : remote.startAt - remote.clockOffset;
     }
@@ -566,45 +587,30 @@ class Race extends Phaser.Scene {
     // O callback MQTT só acrescenta um estado ao buffer; a posição
     // visível é escolhida no loop de update.
     if (!this.raceTimerStarted) {
-      // Até a largada, mantém o rival na faixa oposta à local. Isso
-      // separa os carros desde a criação, mesmo antes dos IDs terem
-      // concluído o alinhamento definitivo.
+      // A grade é calculada pelos mesmos IDs nos dois clientes e não passa
+      // pelo buffer de movimento. Presença usa Date.now; movimento usa um
+      // relógio monotônico. Misturá-los travava o buffer desde a entrada.
       remote.vx = 0;
       remote.vy = 0;
       remote.angularVelocity = 0;
+      this.placeRemoteOnGrid(remote);
+    } else if (hasMotion && remote.roundId === this.raceRoundId) {
+      remote.vx = Number.isFinite(state.vx) ? state.vx : 0;
+      remote.vy = Number.isFinite(state.vy) ? state.vy : 0;
+      remote.angularVelocity = Number.isFinite(state.angularVelocity) ? state.angularVelocity : 0;
       this.pushRemoteState(remote, {
-        x: this.finishLineX,
-        y: this.startLineY + (this.playerSlot === 0 ? 84 : -84),
-        angle: -Math.PI / 2,
+        x: state.x,
+        y: state.y,
+        angle: state.rotation,
         time: receivedAt,
         timestamp: incomingTs,
         motionTime: state.motionTime,
+        vx: remote.vx,
+        vy: remote.vy,
+        angularVelocity: remote.angularVelocity,
       });
-    } else {
-      remote.vx = Number.isFinite(Number(state.vx)) ? Number(state.vx) : 0;
-      remote.vy = Number.isFinite(Number(state.vy)) ? Number(state.vy) : 0;
-      remote.angularVelocity = Number.isFinite(Number(state.angularVelocity))
-        ? Number(state.angularVelocity)
-        : 0;
-      if (
-        Number.isFinite(Number(state.x)) &&
-        Number.isFinite(Number(state.y))
-      ) {
-        this.pushRemoteState(remote, {
-          x: Number(state.x),
-          y: Number(state.y),
-          angle: Number.isFinite(Number(state.rotation))
-            ? Number(state.rotation)
-            : -Math.PI / 2,
-          time: receivedAt,
-          timestamp: incomingTs,
-          motionTime: state.motionTime,
-          vx: remote.vx,
-          vy: remote.vy,
-          angularVelocity: remote.angularVelocity,
-        });
-      }
     }
+    if (remote.collider) remote.collider.active = this.raceTimerStarted && !remote.finished;
 
     if (state.tint !== undefined) remote.tint = Number(state.tint) || 0xffffff;
     if (state.skin && remote.sprite.texture.key !== getCarSkin(state.skin).texture) {
@@ -643,11 +649,15 @@ class Race extends Phaser.Scene {
     const nowPerformance = performance.now();
     Object.entries(this.remotePlayers).forEach(([id, remote]) => {
       if (!remote.online) return;
-      if (now - remote.lastSeen > 3500) {
+      if (now - remote.lastSeen > REMOTE_TIMEOUT) {
         this.removeRemotePlayer(id);
         return;
       }
 
+      if (!this.raceTimerStarted) {
+        this.placeRemoteOnGrid(remote);
+        return;
+      }
       const pose = sampleRemoteMotion(remote, nowPerformance);
       if (!pose) return;
       const { x, y, angle } = pose;
@@ -663,9 +673,13 @@ class Race extends Phaser.Scene {
   removeRemotePlayer(id) {
     const remote = this.remotePlayers[id];
     if (!remote) return;
-    if (remote.finished && Number.isFinite(remote.finishElapsedMs)) {
+    // Oscilações da rede não destroem e recriam o rival na largada durante
+    // a corrida. Mantém a última pose e retoma o mesmo sprite ao reconectar.
+    if (this.raceTimerStarted || (remote.finished && Number.isFinite(remote.finishElapsedMs))) {
       remote.online = false;
       remote.lastSeen = Date.now();
+      if (remote.collider) remote.collider.active = false;
+      if (!remote.finished) remote.label?.setText(`${remote.nick}  RECONECTANDO...`);
       this.updateLobbyStatus();
       this.tryResolvePodium();
       return;
@@ -682,7 +696,7 @@ class Race extends Phaser.Scene {
   getActiveOpponents() {
     const now = Date.now();
     return Object.values(this.remotePlayers).filter(
-      (player) => player.online && now - player.lastSeen <= 3500,
+      (player) => player.online && now - player.lastSeen <= REMOTE_TIMEOUT,
     );
   }
 
@@ -691,6 +705,7 @@ class Race extends Phaser.Scene {
     return (
       this.multiplayer?.connected === true &&
       this.localCarReady &&
+      this.startAlignmentComplete &&
       opponents.length === 1 &&
       opponents[0].ready
     );
@@ -698,9 +713,9 @@ class Race extends Phaser.Scene {
 
   onLocalCarReady() {
     this.localCarReady = true;
+    this.tryCoordinateStart();
     this.publishNetworkState(true, true);
     this.updateLobbyStatus();
-    this.tryCoordinateStart();
   }
 
   updateLobbyStatus() {
@@ -719,6 +734,26 @@ class Race extends Phaser.Scene {
     this.roomStatusLabel.setText(message).setVisible(true);
   }
 
+  placeRemoteOnGrid(remote) {
+    if (!remote?.sprite) return;
+    const remoteSlot = this.playerId.localeCompare(remote.id) < 0 ? 1 : 0;
+    const x = this.finishLineX;
+    const y = this.startLineY + (remoteSlot === 0 ? -84 : 84);
+    if (
+      Math.abs(remote.sprite.x - x) > 0.001 ||
+      Math.abs(remote.sprite.y - y) > 0.001 ||
+      Math.abs(remote.sprite.rotation + Math.PI / 2) > 0.001
+    ) {
+      resetRemoteMotion(remote);
+      remote.sprite.setPosition(x, y).setRotation(-Math.PI / 2);
+      remote.sprite.body?.reset(x, y);
+    }
+    remote.vx = 0;
+    remote.vy = 0;
+    remote.angularVelocity = 0;
+    remote.label?.setPosition(x, y - 82);
+  }
+
   alignStartingCars(opponent) {
     if (!this.localCarReady) return false;
 
@@ -728,15 +763,22 @@ class Race extends Phaser.Scene {
     this.playerSlot = localSlot;
     const targetX = this.finishLineX;
     const targetY = this.startLineY + (localSlot === 0 ? -84 : 84);
+    this.networkStartX = targetX;
+    this.networkStartY = targetY;
+    this.placeRemoteOnGrid(opponent);
+    if (this.startAlignmentTween?.isPlaying()) return false;
     if (
       Math.abs(this.car.x - targetX) < 1 &&
       Math.abs(this.car.y - targetY) < 1
     ) {
-      this.startAlignmentComplete = true;
+      if (!this.startAlignmentComplete) {
+        this.car.body.reset(targetX, targetY);
+        this.car.setAngle(-90);
+        this.startAlignmentComplete = true;
+        this.publishNetworkState(true, true);
+      }
       return true;
     }
-    if (this.startAlignmentTween?.isPlaying()) return false;
-    this.networkStartX = targetX;
     this.car.body.setVelocity(0, 0);
     this.startAlignmentComplete = false;
     this.startAlignmentTween = this.tweens.add({
@@ -762,17 +804,12 @@ class Race extends Phaser.Scene {
     if (this.raceTimerStarted || this.raceFinished) return;
     const opponents = this.getActiveOpponents();
     const opponent = opponents.length === 1 ? opponents[0] : null;
-    if (opponent && this.localCarReady && !this.alignStartingCars(opponent)) {
-      this.updateLobbyStatus();
-      return;
-    }
-    const ready = this.hasReadyPair();
+    const aligned = opponent ? this.alignStartingCars(opponent) : false;
+    const ready = aligned && this.hasReadyPair();
 
     if (!ready) {
       if (this.startCountdownStarted) {
-        this.countdown?.cancel();
-        this.countdown = null;
-        this.startCountdownStarted = false;
+        this.cancelStartCountdown();
         playMusic(this, 'lobby');
       }
       if (this.raceStartAt !== null) {
@@ -794,15 +831,31 @@ class Race extends Phaser.Scene {
       this.raceStartAt = opponent.startAt - opponent.clockOffset;
     }
 
+    // A resposta de sincronização pode ajustar o relógio durante o 3, 2, 1.
+    // Os timers precisam acompanhar o horário compartilhado atualizado.
+    if (this.startCountdownStarted && Number.isFinite(this.countdownStartAt) &&
+      Math.abs(this.raceStartAt - this.countdownStartAt) > 20) {
+      this.cancelStartCountdown();
+    }
     this.updateLobbyStatus();
     if (this.raceStartAt && Date.now() >= this.raceStartAt - 3120)
       this.startCountdown();
+  }
+
+  cancelStartCountdown() {
+    this.countdown?.cancel();
+    this.countdown = null;
+    this.countdownFallbackTimer?.remove(false);
+    this.countdownFallbackTimer = null;
+    this.startCountdownStarted = false;
+    this.countdownStartAt = null;
   }
 
   startCountdown() {
     if (this.startCountdownStarted || !this.raceStartAt || !this.hasReadyPair())
       return;
     this.startCountdownStarted = true;
+    this.countdownStartAt = this.raceStartAt;
     playMusic(this, 'lobby', 0.07);
     try {
       this.countdown = new StartCountdown(this);
@@ -811,16 +864,18 @@ class Race extends Phaser.Scene {
       }, this.raceStartAt);
     } catch (e) {
       console.error("RaceScene: contagem regressiva falhou.", e);
-      this.time.delayedCall(Math.max(0, this.raceStartAt - Date.now()), () =>
+      this.countdownFallbackTimer = this.time.delayedCall(Math.max(0, this.raceStartAt - Date.now()), () =>
         this.beginRace(),
       );
     }
   }
 
   beginRace() {
-    if (!this.hasReadyPair() || !this.raceStartAt) return;
+    if (this.raceTimerStarted || this.raceFinished || !this.hasReadyPair() || !this.raceStartAt)
+      return;
     this.roomStatusLabel?.setVisible(false);
     Object.values(this.remotePlayers).forEach((remote) => {
+      this.placeRemoteOnGrid(remote);
       if (remote.online && remote.collider) remote.collider.active = true;
     });
     this.car.controlsEnabled = true;

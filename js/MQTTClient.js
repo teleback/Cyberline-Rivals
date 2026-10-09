@@ -78,7 +78,7 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
             // abre duas abas/dispositivos ao mesmo tempo.
             const clientId = `cyberline_${this.playerId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 24)}_${this.clientId}`;
 
-            this.client = window.mqtt.connect(this.brokerUrl, {
+            const client = this.client = window.mqtt.connect(this.brokerUrl, {
                 clientId,
                 clean: true,
                 reconnectPeriod: 1000,
@@ -99,11 +99,13 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
                 }
             });
 
-            this.client.on('connect', () => {
+            client.on('connect', () => {
+                if (this.client !== client) return;
                 this.connected = true;
                 this.emit('connect');
 
-                this.client.subscribe(this.roomTopic, { qos: 0 }, (err) => {
+                client.subscribe(this.roomTopic, { qos: 0 }, (err) => {
+                    if (this.client !== client || !this.connected) return;
                     if (err) {
                         this.emit('error', err);
                         reject(err);
@@ -124,17 +126,20 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
                 });
             });
 
-            this.client.on('reconnect', () => {
+            client.on('reconnect', () => {
+                if (this.client !== client) return;
                 this.connected = false;
                 this.emit('status', 'RECONECTANDO...');
             });
 
-            this.client.on('offline', () => {
+            client.on('offline', () => {
+                if (this.client !== client) return;
                 this.connected = false;
                 this.emit('status', 'OFFLINE');
             });
 
-            this.client.on('error', (err) => {
+            client.on('error', (err) => {
+                if (this.client !== client) return;
                 console.error('[MQTT]', err);
                 this.emit('error', err);
                 this.emit('status', 'ERRO DE REDE');
@@ -143,38 +148,37 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
                 if (!this.connected) reject(err);
             });
 
-            this.client.on('close', () => {
+            client.on('close', () => {
+                if (this.client !== client) return;
                 this.connected = false;
                 this.emit('close');
             });
 
-            this.client.on('message', (topic, buffer, packet) => {
-                this.lastMessageAt = performance.now();
-
-                if (topic === this.playerTopic) return;
+            client.on('message', (topic, buffer, packet) => {
+                if (this.client !== client || !this.connected) return;
+                const prefix = `${this.topicPrefix}/room/${this.roomId}/player/`;
+                if (typeof topic !== 'string' || !topic.startsWith(prefix)) return;
+                const topicPlayerId = topic.slice(prefix.length);
+                if (!topicPlayerId || topicPlayerId.includes('/') || topicPlayerId === this.playerId) return;
 
                 let data;
                 try {
                     data = JSON.parse(buffer.toString());
                 } catch (_) {
-                    data = buffer.toString();
+                    return;
                 }
+                if (!data || typeof data !== 'object' || Array.isArray(data) ||
+                    data.id !== topicPlayerId || typeof data.online !== 'boolean') return;
 
-                const shortTopic = topic.startsWith(`${this.topicPrefix}/`)
-                    ? topic.slice(this.topicPrefix.length + 1)
-                    : topic;
+                // Até um piloto "ready" retido pode pertencer a uma corrida
+                // encerrada. Só mensagens ao vivo confirmam a presença e pose.
+                if (packet?.retain && data.online) return;
 
-                // Presença retida é útil para descobrir quem já está na sala,
-                // mas um estado antigo de corrida não deve reposicionar o rival.
-                if (packet?.retain && data?.online === true && !data?.ready) return;
-
+                this.lastMessageAt = performance.now();
+                const shortTopic = topic.slice(this.topicPrefix.length + 1);
                 this.emit('message', shortTopic, data);
                 this.emit(`message:${shortTopic}`, data);
-
-                if (data && typeof data === 'object' && data.id && data.id !== this.playerId) {
-                    // O RaceScene recebe somente estados de jogadores da sala.
-                    this.emit('player', data);
-                }
+                this.emit('player', data);
             });
         }).finally(() => {
             this.connectPromise = null;
@@ -218,7 +222,9 @@ export default class MQTTClient extends Phaser.Events.EventEmitter {
     }
 
     publish(state, options = {}) {
-        if (!this.client || !this.connected || !this.playerTopic) return false;
+        // O socket pode cair antes de emitir "offline". Não deixa esse intervalo
+        // enfileirar uma posição antiga para a próxima conexão.
+        if (!this.client || !this.connected || this.client.connected === false || !this.playerTopic) return false;
 
         const qos = options.qos === 1 ? 1 : 0;
         const retain = options.retain === true;
