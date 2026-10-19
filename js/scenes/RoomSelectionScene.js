@@ -1,14 +1,21 @@
 import { playMusic } from '../fx/Music.js';
 import { readGamepad } from "../input/GamepadInput.js";
 import RoomPresence, { PRESENCE_TIMEOUT } from "../input/RoomPresence.js";
+import { ROOMS, ROOM_COUNT, ROOM_CAPACITY } from "../objects/Rooms.js";
 
-const ROOMS = [
-  { tint: 0xff39d4, color: "#ff39d4" },
-  { tint: 0xa855ff, color: "#a855ff" },
-  { tint: 0x3995ff, color: "#3995ff" },
-  { tint: 0xff39d4, color: "#ff39d4" },
-];
-const ROOM_COUNT = ROOMS.length;
+export function roomGridLayout(width, height) {
+  const compact = width < 600;
+  const margin = width * 0.07;
+  const columns = compact ? 2 : 3;
+  const pageSize = columns * 2;
+  const gap = compact ? 10 : 14;
+  const gridTop = height * 0.275;
+  const gridBottom = height * 0.69;
+  return { compact, margin, columns, pageSize, gap, gridTop,
+    cardWidth: (width - margin * 2 - gap * (columns - 1)) / columns,
+    cardHeight: (gridBottom - gridTop - gap) / 2,
+    pageY: height * (compact ? 0.76 : 0.775), confirmY: height * 0.89 };
+}
 
 // A ocupação vem dos jogadores que publicam presença ao vivo no multiplayer.
 class RoomSelectionScene extends Phaser.Scene {
@@ -34,9 +41,12 @@ class RoomSelectionScene extends Phaser.Scene {
     this.padReadyAt = this.time.now + 350;
     this.padDirection = 0;
     const { width, height } = this.scale;
-    const compact = width < 600;
-    const margin = width * 0.07;
-    const areaWidth = width - margin * 2;
+    this.roomLayout = roomGridLayout(width, height);
+    const { compact, margin, columns, pageSize, gap, cardWidth, cardHeight, gridTop, pageY, confirmY } = this.roomLayout;
+    this.roomColumns = columns;
+    this.roomsPerPage = pageSize;
+    this.roomPage = Math.floor((this.selectedRoom - 1) / pageSize);
+    this.pageCount = Math.ceil(ROOM_COUNT / pageSize);
 
     this.cameras.main.setBackgroundColor("#09051c");
     const backdrop = this.add.graphics();
@@ -88,20 +98,17 @@ class RoomSelectionScene extends Phaser.Scene {
       fontFamily: '"Cyber Arcade", monospace',
       shadow: { offsetX: 0, offsetY: 0, color, blur, fill: true },
     });
-    text(width / 2, height * 0.105, "SELECIONE UMA SALA", compact ? 18 : 24,
+    text(width / 2, height * 0.105, "SELECIONE UMA SALA", compact ? 16 : 24,
       "#ffe5fc", arcade("#ff39d4", 18)).setOrigin(0.5, 0);
-    text(margin, height * 0.195, "04 SALAS  /  02 PILOTOS POR SALA", compact ? 9 : 11, "#7186a9");
-    text(width - margin, height * 0.195, this.playerNick, compact ? 10 : 12,
+    text(margin, height * 0.195, `${ROOM_COUNT} SALAS  /  0${ROOM_CAPACITY} PILOTOS POR SALA`, compact ? 8 : 11, "#7186a9");
+    text(width - margin, height * 0.195, this.playerNick.slice(0, compact ? 10 : 16), compact ? 9 : 12,
       "#acbfff", { fontStyle: "bold" }).setOrigin(1, 0);
 
-    const gap = compact ? 12 : 18;
-    const cardWidth = (areaWidth - gap) / 2;
-    const cardHeight = height * 0.225;
-    const gridTop = height * 0.275;
     ROOMS.forEach((room, index) => {
-      const roomId = index + 1;
-      const x = margin + (index % 2) * (cardWidth + gap);
-      const y = gridTop + Math.floor(index / 2) * (cardHeight + gap);
+      const roomId = room.id;
+      const position = index % pageSize;
+      const x = margin + (position % columns) * (cardWidth + gap);
+      const y = gridTop + Math.floor(position / columns) * (cardHeight + gap);
       const glowWide = this.add.rectangle(x + cardWidth / 2, y + cardHeight / 2,
         cardWidth + 12, cardHeight + 12, room.tint, 0).setStrokeStyle(8, room.tint, 0.07);
       const glow = this.add.rectangle(x + cardWidth / 2, y + cardHeight / 2,
@@ -123,11 +130,13 @@ class RoomSelectionScene extends Phaser.Scene {
       ornament.strokePoints([{ x, y: y + 18 }, { x, y }, { x: x + 24, y }]);
       ornament.strokePoints([{ x: x + cardWidth - 24, y: y + cardHeight },
         { x: x + cardWidth, y: y + cardHeight }, { x: x + cardWidth, y: y + cardHeight - 18 }]);
-      const title = text(x + 20, y + cardHeight * 0.3, `SALA ${roomId}`,
-        compact ? 20 : 26, "#fff0fc", arcade(room.color, 16));
-      const detail = text(x + 16, y + cardHeight - 25, "", compact ? 9 : 10, "#91a4c5");
-      const indicator = text(x + cardWidth - 12, y + 12, "◆", 12, room.color).setOrigin(1, 0);
-      const slots = [0, 1].map(slot => this.add.rectangle(x + cardWidth - 31 + slot * 12,
+      const title = text(x + 14, y + 17, `SALA ${String(roomId).padStart(2, '0')}`,
+        compact ? 16 : 18, "#fff0fc", arcade(room.color, 6));
+      const detail = text(x + 14, y + cardHeight - 22, "", compact ? 9 : 10, "#91a4c5",
+        { wordWrap: { width: cardWidth - 48 } });
+      const count = text(x + cardWidth - 12, y + 12, `0/${ROOM_CAPACITY}`, 10, '#91a4c5').setOrigin(1, 0);
+      const indicator = text(x + cardWidth - 12, y + cardHeight - 43, "◆", 10, room.color).setOrigin(1, 0);
+      const slots = Array.from({ length: ROOM_CAPACITY }, (_, slot) => this.add.rectangle(x + cardWidth - 31 + slot * 12,
         y + cardHeight - 20, 6, 10, 0x293852));
       const accent = this.add.rectangle(x + 2, y + cardHeight / 2, 3, cardHeight - 28, room.tint);
       card.on("pointerdown", () => this.selectRoom(roomId));
@@ -137,30 +146,63 @@ class RoomSelectionScene extends Phaser.Scene {
       card.on("pointerout", () => {
         if (this.selectedRoom !== roomId) card.setStrokeStyle(1, room.tint, 0.5);
       });
-      this.roomCards.push({ roomId, card, glow, glowWide, title, detail, indicator, slots, accent, ...room });
+      const container = this.add.container(0, 0,
+        [glowWide, glow, card, ornament, title, detail, count, indicator, ...slots, accent]);
+      this.roomCards.push({ roomId, container, card, glow, glowWide, title, detail, count, indicator, slots, accent, ...room });
     });
 
-    this.statusText = text(width / 2, height * 0.81, "", compact ? 10 : 11, "#ff39d4").setOrigin(0.5);
-    this.confirm = text(width / 2, height * 0.895, "ENTRAR NA SALA  ›", compact ? 10 : 12,
+    const pageButton = (x, label, step) => {
+      const button = this.add.rectangle(x, pageY, 64, 38, 0x1b1031)
+        .setStrokeStyle(1, 0xa855ff, 0.7);
+      button.setInteractive(new Phaser.Geom.Rectangle(0, -11, 64, 60), Phaser.Geom.Rectangle.Contains);
+      button.on('pointerdown', () => this.changePage(step));
+      text(x, pageY - 1, label, 26, '#e5baff').setOrigin(0.5);
+      return button;
+    };
+    this.previousPageButton = pageButton(margin + 32, '‹', -1);
+    this.nextPageButton = pageButton(width - margin - 32, '›', 1);
+    this.pageLabel = text(width / 2, pageY - 12, '', compact ? 9 : 10, '#b3acd0').setOrigin(0.5);
+    this.statusText = text(width / 2, pageY + 12, "", compact ? 9 : 11, "#ff39d4").setOrigin(0.5);
+    this.confirm = text(width / 2, confirmY, "ENTRAR NA SALA  ›", compact ? 10 : 12,
       "#ffe5fc", { ...arcade("#ff39d4", 14), backgroundColor: "#26103e",
-        padding: { left: 28, right: 28, top: 10, bottom: 10 } })
+        padding: { left: 28, right: 28, top: compact ? 12 : 16, bottom: compact ? 12 : 16 } })
       .setOrigin(0.5).setInteractive({ useHandCursor: true });
     this.confirm.on("pointerdown", () => this.confirmSelection());
-    text(width / 2, height * 0.985, "DIRECIONAL: ESCOLHER   •   A / ENTER: ENTRAR",
-      compact ? 8 : 9, "#7385a7").setOrigin(0.5, 1);
+    text(width / 2, height * 0.985, this.game?.device?.input?.touch
+      ? 'DESLIZE PARA VER MAIS SALAS  •  TOQUE PARA ESCOLHER' : "DIRECIONAL: ESCOLHER   •   A / ENTER: ENTRAR",
+      compact ? 7 : 9, "#7385a7").setOrigin(0.5, 1);
     this.selectRoom(this.selectedRoom);
 
     const keys = {
       "keydown-LEFT": () => this.moveSelection(-1),
       "keydown-RIGHT": () => this.moveSelection(1),
-      "keydown-UP": () => this.moveSelection(-2),
-      "keydown-DOWN": () => this.moveSelection(2),
+      "keydown-UP": () => this.moveSelection(-columns),
+      "keydown-DOWN": () => this.moveSelection(columns),
+      "keydown-PAGE_UP": () => this.changePage(-1),
+      "keydown-PAGE_DOWN": () => this.changePage(1),
       "keydown-ENTER": () => this.confirmSelection(),
       "keydown-SPACE": () => this.confirmSelection(),
     };
     for (const [event, handler] of Object.entries(keys)) this.input.keyboard?.on(event, handler);
     this.events.once("shutdown", () => {
       for (const [event, handler] of Object.entries(keys)) this.input.keyboard?.off(event, handler);
+    });
+    let swipeStart = null;
+    const startSwipe = pointer => {
+      swipeStart = pointer.y >= gridTop && pointer.y <= height * 0.69
+        ? { id: pointer.id, x: pointer.x, y: pointer.y } : null;
+    };
+    const finishSwipe = pointer => {
+      if (!swipeStart || swipeStart.id !== pointer.id) return;
+      const dx = pointer.x - swipeStart.x, dy = pointer.y - swipeStart.y;
+      swipeStart = null;
+      if (Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.3) this.changePage(dx < 0 ? 1 : -1);
+    };
+    this.input.on('pointerdown', startSwipe);
+    this.input.on('pointerup', finishSwipe);
+    this.events.once('shutdown', () => {
+      this.input.off('pointerdown', startSwipe);
+      this.input.off('pointerup', finishSwipe);
     });
     // Remove presenças sem mensagens recentes enquanto a tela está aberta.
     this.time.addEvent({ delay: 1000, loop: true, callback: () => this.selectRoom(this.selectedRoom) });
@@ -172,10 +214,13 @@ class RoomSelectionScene extends Phaser.Scene {
     let statusVersion = 0;
     this.roomDirectory = new RoomPresence(this.playerId, (roomId, state) => {
       const players = this.roomPlayers.get(roomId) || new Map();
+      const wasPresent = players.has(state.id);
       if (state.online) players.set(state.id, Date.now());
       else players.delete(state.id);
       this.roomPlayers.set(roomId, players);
-      this.selectRoom(this.selectedRoom);
+      // As mensagens de movimento só renovam o prazo. Redesenha os cartões
+      // quando alguém entra ou sai, sem repintar dez salas a cada heartbeat.
+      if (wasPresent !== state.online) this.selectRoom(this.selectedRoom);
     }, status => {
       const version = ++statusVersion;
       this.roomPresenceStatus = status;
@@ -183,7 +228,7 @@ class RoomSelectionScene extends Phaser.Scene {
       if (status !== 'connected') this.roomPlayers.clear();
       this.selectRoom(this.selectedRoom);
       if (status === 'connected') {
-        // Dá tempo de receber os primeiros estados ao vivo das quatro salas.
+        // Dá tempo de receber os primeiros estados ao vivo das dez salas.
         this.time.delayedCall(600, () => {
           if (disposed || version !== statusVersion) return;
           this.roomPresenceReady = true;
@@ -200,14 +245,26 @@ class RoomSelectionScene extends Phaser.Scene {
   }
 
   moveSelection(step) {
-    this.selectRoom(((this.selectedRoom - 1 + step + ROOM_COUNT) % ROOM_COUNT) + 1);
+    let next = this.selectedRoom - 1 + step;
+    if (Math.abs(step) === this.roomColumns) {
+      const column = (this.selectedRoom - 1) % this.roomColumns;
+      if (next >= ROOM_COUNT) next = column;
+      if (next < 0) next = column + Math.floor((ROOM_COUNT - 1 - column) / this.roomColumns) * this.roomColumns;
+    }
+    this.selectRoom(((next + ROOM_COUNT) % ROOM_COUNT) + 1);
+  }
+
+  changePage(step) {
+    const page = (this.roomPage + step + this.pageCount) % this.pageCount;
+    const position = (this.selectedRoom - 1) % this.roomsPerPage;
+    this.selectRoom(Math.min(ROOM_COUNT, page * this.roomsPerPage + position + 1));
   }
 
   update(time) {
     const pad = readGamepad();
     if (!pad.any) this.padConfirmArmed = true;
     if (time < this.padReadyAt) return;
-    const direction = pad.left ? -1 : pad.right ? 1 : pad.up ? -2 : pad.down ? 2 : 0;
+    const direction = pad.left ? -1 : pad.right ? 1 : pad.up ? -this.roomColumns : pad.down ? this.roomColumns : 0;
     if (direction && (direction !== this.padDirection || time >= this.padNavigationAt)) {
       this.moveSelection(direction);
       this.padNavigationAt = time + 220;
@@ -221,19 +278,30 @@ class RoomSelectionScene extends Phaser.Scene {
 
   selectRoom(roomId) {
     this.selectedRoom = Number.isInteger(roomId) ? Math.max(1, Math.min(ROOM_COUNT, roomId)) : 1;
-    this.roomCards.forEach(({ roomId: id, card, glow, glowWide, title, detail, indicator, slots, accent, tint, color }) => {
+    this.roomPage = Math.floor((this.selectedRoom - 1) / this.roomsPerPage);
+    const first = this.roomPage * this.roomsPerPage + 1;
+    const last = Math.min(ROOM_COUNT, first + this.roomsPerPage - 1);
+    this.pageLabel?.setText(`SALAS ${String(first).padStart(2, '0')}–${String(last).padStart(2, '0')}  /  ${ROOM_COUNT}`);
+    this.roomCards.forEach(view => {
+      const { roomId: id, container, card, glow, glowWide, title, detail, count, indicator, slots, accent, tint, color } = view;
+      container.setVisible(Math.floor((id - 1) / this.roomsPerPage) === this.roomPage);
       const active = id === this.selectedRoom;
       const occupancy = this.getRoomOccupancy(id);
-      const full = occupancy >= 2 && !this.playerIsInRoom(id);
+      const full = occupancy >= ROOM_CAPACITY && !this.playerIsInRoom(id);
+      const visualState = `${active}:${occupancy}:${this.roomPresenceReady}:${this.roomPresenceStatus}`;
+      if (view.visualState === visualState) return;
+      view.visualState = visualState;
       card.setStrokeStyle(active ? 3 : 1, tint, active ? 1 : 0.5);
       card.setFillStyle(active ? 0x271443 : 0x150d2b);
       glow.setAlpha(active ? 1 : 0.4);
       glowWide.setAlpha(active ? 1 : 0.3);
       title.setColor(active ? "#ffffff" : "#eadcff");
-      title.setShadow(0, 0, color, active ? 22 : 10, false, true);
+      title.setShadow(0, 0, color, active ? 8 : 4, false, true);
       detail.setText(this.roomPresenceReady
-        ? `${this.getRoomDetailText(occupancy)}  /  ${Math.min(occupancy, 2)}/2`
+        ? this.getRoomDetailText(occupancy)
         : this.roomPresenceStatus === 'offline' ? 'OCUPAÇÃO INDISPONÍVEL' : 'VERIFICANDO...');
+      count.setText(`${this.roomPresenceReady ? Math.min(occupancy, ROOM_CAPACITY) : '–'}/${ROOM_CAPACITY}`);
+      count.setColor(full ? '#ff8de6' : '#b4c8ef');
       detail.setColor(full ? "#ff8de6" : active ? "#f4e9ff" : "#a49cc4");
       indicator.setVisible(active);
       accent.setAlpha(active ? 1 : 0.25);
@@ -241,22 +309,30 @@ class RoomSelectionScene extends Phaser.Scene {
     });
     const room = ROOMS[this.selectedRoom - 1];
     const occupancy = this.getRoomOccupancy(this.selectedRoom);
-    const isFull = occupancy >= 2 && !this.playerIsInRoom(this.selectedRoom);
+    const isFull = occupancy >= ROOM_CAPACITY && !this.playerIsInRoom(this.selectedRoom);
     this.statusText?.setText(isFull
-      ? `SALA ${this.selectedRoom} CHEIA — ESCOLHA OUTRA`
+      ? `SALA ${this.selectedRoom}: PARTIDA EM ANDAMENTO`
       : `SALA ${this.selectedRoom} SELECIONADA`).setColor(isFull ? "#ff8de6" : room.color);
     this.confirm?.setColor(isFull ? "#ff8de6" : "#fff0fc");
     this.confirm?.setShadow(0, 0, room.color, 14, false, true);
-    this.confirm?.setText(isFull ? "SALA CHEIA" : "ENTRAR NA SALA  ›");
+    this.confirm?.setText(!this.roomPresenceReady
+      ? this.roomPresenceStatus === 'offline' ? 'RECONECTANDO...' : 'VERIFICANDO SALAS...'
+      : isFull ? "PARTIDA EM ANDAMENTO" : "ENTRAR NA SALA  ›");
+    this.confirm?.setAlpha(!this.roomPresenceReady || isFull ? 0.55 : 1);
   }
 
   confirmSelection() {
     if (this.enteringRoom) return;
+    if (!this.roomPresenceReady) {
+      this.statusText?.setText(this.roomPresenceStatus === 'offline'
+        ? 'AGUARDE A CONEXÃO COM AS SALAS' : 'VERIFICANDO A OCUPAÇÃO...');
+      return;
+    }
     const currentOccupancy = this.getRoomOccupancy(this.selectedRoom);
-    if (currentOccupancy >= 2 && !this.playerIsInRoom(this.selectedRoom)) {
+    if (currentOccupancy >= ROOM_CAPACITY && !this.playerIsInRoom(this.selectedRoom)) {
       if (this.statusText) {
         this.statusText.setText(
-          `SALA ${this.selectedRoom} CHEIA — ESCOLHA OUTRA`,
+          `SALA ${this.selectedRoom}: PARTIDA EM ANDAMENTO`,
         );
       }
       return;
@@ -292,7 +368,7 @@ class RoomSelectionScene extends Phaser.Scene {
   }
 
   getRoomDetailText(occupancy) {
-    if (occupancy >= 2) return "SALA CHEIA";
+    if (occupancy >= ROOM_CAPACITY) return "PARTIDA EM ANDAMENTO";
     if (occupancy === 1) return "1 JOGADOR";
     return "LIVRE";
   }

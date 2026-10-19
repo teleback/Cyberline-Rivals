@@ -97,6 +97,21 @@ test('a ready rival cannot release controls before local grid alignment finishes
     assert.equal(race.raceTimerStarted, false);
 });
 
+test('a rival entrance must finish before the shared countdown can start', () => {
+    const { race, remote } = setup('a', 'c');
+    race.localCarReady = true;
+    race.startAlignmentComplete = true;
+    remote.ready = true;
+    remote.entering = true;
+    const before = { x: remote.sprite.x, y: remote.sprite.y };
+    race.placeRemoteOnGrid(remote);
+    assert.deepEqual({ x: remote.sprite.x, y: remote.sprite.y }, before);
+    assert.equal(remote.sprite.body.resets, 0);
+    assert.equal(race.hasReadyPair(), false);
+    remote.entering = false;
+    assert.equal(race.hasReadyPair(), true);
+});
+
 test('the already aligned pilot announces readiness immediately without waiting for a heartbeat', () => {
     const { race, publications, tweenQueue } = setup('c', 'a');
     race.localCarReady = true;

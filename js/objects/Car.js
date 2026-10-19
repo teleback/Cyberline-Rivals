@@ -196,6 +196,17 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // A ré e a direção para longe dela continuam liberadas.
         if (this.contact && time < this.contact.until) {
             const { x: nx, y: ny } = this.contact;
+            // Sustenta o recuo por um instante: acelerar contra a parede
+            // não pode frear o impulso da batida já no quadro seguinte.
+            if (this.contact.rebound && !brake) {
+                const outward = this.body.velocity.x * nx + this.body.velocity.y * ny;
+                const retained = Math.max(0, outward) * Math.exp(-3.5 * seconds);
+                const after = motion.vx * nx + motion.vy * ny;
+                if (after < retained) {
+                    motion.vx += nx * (retained - after);
+                    motion.vy += ny * (retained - after);
+                }
+            }
             // O pneu não cancela o desvio lateral da batida no frame seguinte.
             // Frear libera essa assistência imediatamente para facilitar a ré.
             if (throttle && forwardSpeed >= -this.stoppedThreshold) {

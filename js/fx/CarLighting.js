@@ -50,10 +50,16 @@ export default class CarLighting {
         texture.refresh();
     }
 
-    update() {
+    update(view) {
         const car = this.car;
-        const visible = car.active && car.visible && car.alpha > 0;
-        for (const sprite of this.worldObjects) sprite.setVisible(visible);
+        const reach = 320 * Math.max(Math.abs(car.scaleX), Math.abs(car.scaleY));
+        const nearby = !view || (car.x + reach >= view.x && car.x - reach <= view.right
+            && car.y + reach >= view.y && car.y - reach <= view.bottom);
+        const visible = car.active && car.visible && car.alpha > 0 && nearby;
+        if (visible !== this.visible) {
+            for (const sprite of this.worldObjects) sprite.setVisible(visible);
+            this.visible = visible;
+        }
         if (!visible) return;
         const pose = carLightPose(car);
         this.headlights.setPosition(pose.x, pose.y).setRotation(pose.rotation)

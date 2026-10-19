@@ -33,6 +33,7 @@ globalThis.Phaser = { Scene: class {}, Physics: { Arcade: { Sprite } },
 const { default: Car } = await import('../js/objects/Car.js');
 const { default: Race } = await import('../js/scenes/RaceScene.js');
 const { readGamepad } = await import('../js/input/GamepadInput.js');
+const { CollisionIndex, resolveTravel } = await import('../js/objects/TrackCollisions.js');
 
 function setup(speed = 0) {
     const scene = {
@@ -185,4 +186,47 @@ test('short collision recovery preserves a barrel deflection instead of cancelli
     const before = car.body.velocity.y;
     car.update(116, 16);
     assert.ok(car.body.velocity.y < before * 0.85, 'braking restores full grip for maneuvering');
+});
+
+test('holding the accelerator after a frontal wall hit still moves the car away at different frame rates', () => {
+    const wall = { type: 'rect', x: 0, y: -1000, width: 10, height: 2000 };
+    const index = new CollisionIndex([wall]);
+    for (const fps of [30, 60, 120]) {
+        const car = setup(390), seconds = 1 / fps;
+        car.cursors.up.isDown = true;
+        let pose = resolveTravel(index, { x: -40, y: 0 }, { x: -20, y: 0 }, car.body.velocity, 24);
+        car.setVelocity(pose.vx, pose.vy);
+        car.contact = { ...pose.normal, until: 260 };
+        const impactX = pose.x;
+        for (let frame = 1; frame <= Math.floor(fps * 0.25); frame++) {
+            car.update(frame * 1000 / fps, seconds * 1000);
+            pose = resolveTravel(index, pose,
+                { x: pose.x + car.body.velocity.x * seconds, y: pose.y + car.body.velocity.y * seconds },
+                car.body.velocity, 24);
+            car.setVelocity(pose.vx, pose.vy);
+            assert.ok(pose.hits.length === 0, 'the same impact cannot pin the car every frame');
+            assert.ok(pose.vx < 0, 'throttle cannot cancel the brief rebound');
+        }
+        assert.ok(pose.x < impactX - 20, `${fps} FPS: the car visibly backs away from the wall`);
+        car.cursors.right.isDown = true;
+        car.update(250, seconds * 1000);
+        assert.ok(Math.abs(car.body.angularVelocity) > 1, 'steering remains available during recovery');
+    }
+});
+
+test('collision recovery allows braking into reverse and accelerating away from the wall', () => {
+    const car = setup(-120);
+    car.contact = { x: -1, y: 0, rebound: true, until: 260 };
+    car.cursors.down.isDown = true;
+    car.update(16, 16);
+    assert.ok(car.body.velocity.x < -120, 'reverse takes over immediately from the rebound');
+    car.cursors.down.isDown = false;
+    car.cursors.up.isDown = true;
+    car.rotation = -Math.PI / 2;
+    const before = car.body.velocity.x;
+    car.update(32, 16);
+    assert.ok(car.body.velocity.x < before, 'recovery never caps acceleration away from the wall');
+    car.rotation = Math.PI / 2;
+    car.update(500, 16);
+    assert.ok(car.body.velocity.x > before, 'normal throttle resumes when recovery ends');
 });

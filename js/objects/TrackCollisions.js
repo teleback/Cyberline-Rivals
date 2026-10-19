@@ -29,6 +29,7 @@ export function wallShapes(objects) {
 }
 
 function bounds(shape) {
+    if (shape.type === 'finish-line') return [shape.x, shape.yMin, shape.x, shape.yMax];
     if (shape.type === 'rect') return [shape.x, shape.y, shape.x + shape.width, shape.y + shape.height];
     if (shape.type === 'circle') return [shape.x - shape.radius, shape.y - shape.radius,
         shape.x + shape.radius, shape.y + shape.radius];
@@ -61,7 +62,15 @@ export class CollisionIndex {
     }
 }
 
-export function contactAt(shape, x, y, radius) {
+export function contactAt(shape, x, y, radius, start) {
+    if (shape.type === 'finish-line') {
+        // Cars spawn centered on the line. Block their centers from
+        // crossing back to the right, while letting each lap pass left.
+        if (!start || start.x > shape.x || x <= shape.x) return null;
+        const crossingY = start.y + (y - start.y) * (shape.x - start.x) / (x - start.x);
+        if (crossingY + radius < shape.yMin || crossingY - radius > shape.yMax) return null;
+        return { nx: -1, ny: 0, depth: x - shape.x };
+    }
     let px, py, extra = shape.radius || 0;
     if (shape.type === 'rect') {
         px = Math.max(shape.x, Math.min(shape.x + shape.width, x));
@@ -99,7 +108,7 @@ export function resolveTravel(index, start, end, velocity, radius, steering = 0)
         for (let iteration = 0; iteration < 8; iteration++) {
             let deepest = null, surface = null;
             for (const shape of index.query(x, y, radius + SKIN)) {
-                const contact = contactAt(shape, x, y, radius);
+                const contact = contactAt(shape, x, y, radius, start);
                 if (contact && (!deepest || contact.depth > deepest.depth)) {
                     deepest = contact; surface = shape;
                 }
@@ -107,13 +116,17 @@ export function resolveTravel(index, start, end, velocity, radius, steering = 0)
             if (!deepest) break;
             const { nx, ny, depth } = deepest;
             x += nx * (depth + SKIN); y += ny * (depth + SKIN);
-            normal = { x: nx, y: ny, barrel: !!surface.obstacle };
+            const wall = !surface.obstacle && surface.type !== 'finish-line';
+            normal = { x: nx, y: ny, barrel: !!surface.obstacle, rebound: wall };
             const incoming = vx * nx + vy * ny;
             if (incoming < 0) {
                 const speed = Math.hypot(vx, vy);
-                // Conserva a velocidade ao longo da parede. Só o componente
-                // contra ela recebe um pequeno recuo, sem multiplicar tudo.
-                const rebound = Math.min(70, -incoming * 0.14);
+                // Raspadas continuam deslizando; uma batida de frente afasta
+                // o carro da parede, com recuo limitado mesmo durante o turbo.
+                const frontal = -incoming / Math.max(1, speed);
+                const restitution = wall ? 0.14 + 0.24 * frontal * frontal : 0.14;
+                const rebound = surface.type === 'finish-line' ? 0
+                    : Math.min(wall ? 180 : 70, -incoming * restitution);
                 vx += nx * (rebound - incoming); vy += ny * (rebound - incoming);
                 if (surface.obstacle && -incoming > 45) {
                     const tx = -ny, ty = nx, along = vx * tx + vy * ty;
@@ -140,11 +153,17 @@ export default class TrackCollisions {
         const barrels = scene.obstacles.getChildren().map(obstacle => ({ type: 'circle',
             x: obstacle.body.center.x, y: obstacle.body.center.y,
             radius: obstacle.body.radius, obstacle }));
-        this.index = new CollisionIndex([...walls, ...barrels]);
+        const finish = Number.isFinite(scene.finishLineX)
+            && Number.isFinite(scene.finishLineYMin) && Number.isFinite(scene.finishLineYMax)
+            ? [{ type: 'finish-line', x: scene.finishLineX,
+                yMin: scene.finishLineYMin, yMax: scene.finishLineYMax }] : [];
+        this.index = new CollisionIndex([...walls, ...barrels, ...finish]);
         this.previous = { x: scene.car.body.center.x, y: scene.car.body.center.y };
         this.step = () => this.update();
-        scene.physics.world.on('worldstep', this.step);
-        scene.events.once('shutdown', () => scene.physics.world.off('worldstep', this.step));
+        // Arcade clears scene.physics.world before user shutdown handlers run.
+        const world = scene.physics.world;
+        world.on('worldstep', this.step);
+        scene.events.once('shutdown', () => world.off('worldstep', this.step));
     }
     update() {
         const { car } = this.scene;
@@ -160,7 +179,7 @@ export default class TrackCollisions {
         body.speed = Math.hypot(result.vx, result.vy);
         this.previous = { x: result.x, y: result.y };
         if (result.normal) car.contact = { ...result.normal,
-            until: this.scene.time.now + (result.normal.barrel ? 260 : 160) };
+            until: this.scene.time.now + (result.normal.rebound || result.normal.barrel ? 260 : 160) };
         const largest = result.hits.reduce((a, b) => !a || b.speed > a.speed ? b : a, null);
         if (largest) this.scene.onCrash(largest.speed, largest);
         for (const hit of result.hits) {

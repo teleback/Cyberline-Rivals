@@ -218,8 +218,8 @@ test('reliable brick and finish messages in the same millisecond are ordered by 
     Object.assign(remote, {
         sessionId: 'session-b', lastMessageTs: 1000, lastMessageSeq: 9,
         lastPacketAt: performance.now(), arrivalJitter: 0, stateBuffer: [],
-        sprite: { texture: { key: 'car-blue-v2' }, setTint() {}, setScale() {} },
-        label: { setText() {} },
+        sprite: { texture: { key: 'car-blue-v2' }, body: {}, setTint() {}, setScale() {}, setVisible() {} },
+        label: { setText() {}, setVisible() {} },
     });
     Object.assign(race, { totalLaps: 3, raceTimerStarted: true, networkSendInterval: 33,
         pendingClockProbes: new Map(),
@@ -253,4 +253,38 @@ test('forced publications include the pickup ledger and reliable delivery, even 
     assert.equal(packets[0][0].completedLaps, 3);
     assert.equal(packets[0][0].finished, true);
     assert.deepEqual(packets[0][1], { retain: true, qos: 1 });
+});
+
+test('finishing hides the local car without removing the rival or losing the recorded result', () => {
+    const race = new Race(), events = [], lights = [];
+    const car = {
+        body: { enable: true, setAcceleration() {} },
+        controlsEnabled: true, isTurboActive: true, turboIntensity: 1,
+        setVelocity() {}, setAngularVelocity() {},
+        setVisible(value) { this.visible = value; },
+    };
+    const opponent = { sprite: { visible: true }, collider: { active: true } };
+    Object.assign(race, {
+        car, raceFinished: false, raceTimerStarted: true, totalLaps: 3,
+        time: { now: 125000 }, raceStartTime: 5000,
+        lapLabel: label(), raceTimerLabel: label(),
+        remotePlayers: { b: opponent },
+        nightLighting: { removeCar: car => lights.push(car) },
+        engineAudio: { fadeOut() { events.push('fade'); } },
+        updateRaceTimerHud() {},
+        publishNetworkState() { events.push(['finish', this.finishElapsedMs, this.car.visible]); },
+        showWaitingForOpponent() { events.push('waiting'); },
+        tryResolvePodium() {},
+    });
+    race.finishRace();
+    race.finishRace();
+    assert.equal(car.visible, false);
+    assert.equal(car.body.enable, false);
+    assert.equal(car.controlsEnabled, false);
+    assert.equal(car.turboIntensity, 0);
+    assert.equal(race.finishElapsedMs, 120000);
+    assert.equal(opponent.sprite.visible, true);
+    assert.equal(opponent.collider.active, false);
+    assert.deepEqual(lights, [car]);
+    assert.deepEqual(events, ['fade', ['finish', 120000, false], 'waiting']);
 });

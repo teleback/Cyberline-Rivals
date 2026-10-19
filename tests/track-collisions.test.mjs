@@ -40,7 +40,32 @@ test('swept contacts stop a boosted car from tunneling through a thin wall', () 
     const wall = { type: 'rect', x: 0, y: -200, width: 4, height: 400 };
     const result = resolveTravel(new CollisionIndex([wall]), { x: -100, y: 0 }, { x: 100, y: 0 }, { x: 820, y: 0 }, 24);
     assert.ok(result.x <= -24);
-    assert.ok(result.vx < 0 && Math.abs(result.vx) <= 70);
+    assert.ok(result.vx < -100 && Math.abs(result.vx) <= 180);
+});
+
+test('frontal impacts rebound into the track with a bounded impulse on every side and in corners', () => {
+    for (const [nx, ny] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+        const wall = nx ? { type: 'rect', x: nx < 0 ? 0 : -10, y: -200, width: 10, height: 400 }
+            : { type: 'rect', x: -200, y: ny < 0 ? 0 : -10, width: 400, height: 10 };
+        for (const speed of [200, 390, 1400]) {
+            const result = resolveTravel(new CollisionIndex([wall]),
+                { x: nx * 40, y: ny * 40 }, { x: nx * 20, y: ny * 20 },
+                { x: -nx * speed, y: -ny * speed }, 24);
+            const away = result.vx * nx + result.vy * ny;
+            assert.ok(away >= speed * 0.3 || away === 180, 'the impact produces a noticeable rebound');
+            assert.ok(away <= 180, 'turbo impacts cannot launch the car across the track');
+            assert.equal(result.normal.rebound, true);
+            assert.equal(contactAt(wall, result.x, result.y, 24), null);
+        }
+    }
+    const walls = [
+        { type: 'rect', x: 0, y: -200, width: 10, height: 400 },
+        { type: 'rect', x: -200, y: 0, width: 400, height: 10 },
+    ];
+    const result = resolveTravel(new CollisionIndex(walls), { x: -40, y: -40 },
+        { x: -20, y: -20 }, { x: 275, y: 275 }, 24);
+    assert.ok(result.vx < -50 && result.vy < -50);
+    assert.ok(walls.every(wall => !contactAt(wall, result.x, result.y, 24)));
 });
 
 test('adjacent curb points form a smooth surface instead of grabbing the car at each joint', () => {
@@ -81,6 +106,95 @@ test('backing away from contact is unrestricted and resting overlaps do not repe
     assert.equal(resting.hits.length, 0);
 });
 
+const finishLine = { type: 'finish-line', x: 5152, yMin: 3308, yMax: 3668 };
+
+test('the finish line blocks wrong-way travel from the grid and at boosted speed', () => {
+    const index = new CollisionIndex([finishLine]);
+    for (const startX of [finishLine.x, finishLine.x - 1.5, finishLine.x - 120]) {
+        for (const speed of [50, 1400]) {
+            const result = resolveTravel(index, { x: startX, y: 3488 },
+                { x: finishLine.x + 200, y: 3488 }, { x: speed, y: 0 }, 24);
+            assert.ok(result.x <= finishLine.x, 'The car cannot return behind the finish line');
+            assert.equal(result.vx, 0);
+            assert.equal(result.vy, 0);
+            assert.equal(result.hits.length, 1);
+        }
+    }
+});
+
+test('the finish line allows normal starts, completed laps and movement on the returning straight', () => {
+    const index = new CollisionIndex([finishLine]);
+    for (const [startX, endX, vx] of [
+        [finishLine.x, finishLine.x - 100, -390],
+        [finishLine.x + 120, finishLine.x - 120, -820],
+        [finishLine.x + 120, finishLine.x + 150, 100],
+    ]) {
+        const result = resolveTravel(index, { x: startX, y: 3488 },
+            { x: endX, y: 3488 }, { x: vx, y: 0 }, 24);
+        assert.ok(Math.abs(result.x - endX) < 1e-8);
+        assert.equal(result.vx, vx);
+        assert.equal(result.hits.length, 0);
+    }
+    // Once a lap crosses in the allowed direction, returning over the
+    // same line is blocked immediately, without waiting for Scene.update.
+    const lap = resolveTravel(index, { x: finishLine.x + 10, y: 3488 },
+        { x: finishLine.x - 10, y: 3488 }, { x: -390, y: 0 }, 24);
+    const reverse = resolveTravel(index, lap, { x: finishLine.x + 30, y: 3488 },
+        { x: 100, y: 0 }, 24);
+    assert.ok(reverse.x <= finishLine.x);
+    assert.equal(reverse.vx, 0);
+});
+
+test('diagonal attempts stop at the finish line, retain lateral motion and leave other track sections open', () => {
+    const index = new CollisionIndex([finishLine]);
+    const result = resolveTravel(index, { x: finishLine.x - 40, y: 3404 },
+        { x: finishLine.x + 40, y: 3444 }, { x: 240, y: 120 }, 24);
+    assert.ok(result.x <= finishLine.x);
+    assert.ok(Math.abs(result.y - 3444) < 1e-8);
+    assert.equal(result.vx, 0);
+    assert.equal(result.vy, 120);
+    for (const y of [3404, 3572, finishLine.yMin - 20, finishLine.yMax + 20]) {
+        const blocked = resolveTravel(index, { x: finishLine.x - 40, y },
+            { x: finishLine.x + 40, y }, { x: 100, y: 0 }, 24);
+        assert.ok(blocked.x <= finishLine.x, 'Both lanes and the edges of the car are covered');
+    }
+    for (const y of [finishLine.yMin - 100, finishLine.yMax + 100]) {
+        const clear = resolveTravel(index, { x: finishLine.x - 40, y },
+            { x: finishLine.x + 40, y }, { x: 100, y: 0 }, 24);
+        assert.ok(Math.abs(clear.x - finishLine.x - 40) < 1e-8);
+        assert.equal(clear.vx, 100);
+    }
+});
+
+test('the live collision system enforces the finish barrier on every physics step', () => {
+    const world = new EventEmitter(), events = new EventEmitter();
+    const body = { position: { x: finishLine.x - 24, y: 3488 - 24 },
+        center: { x: finishLine.x, y: 3488 }, radius: 24,
+        velocity: { x: 0, y: 0, set(x, y) { this.x = x; this.y = y; } },
+        updateCenter() { this.center = { x: this.position.x + 24, y: this.position.y + 24 }; } };
+    const scene = { finishLineX: finishLine.x, finishLineYMin: finishLine.yMin,
+        finishLineYMax: finishLine.yMax, car: { body, handling: { steering: 0 }, controlsEnabled: false },
+        physics: { world }, events, time: { now: 100 }, obstacles: { getChildren: () => [] }, onCrash() {} };
+    new TrackCollisions(scene, []);
+    world.emit('worldstep');
+    assert.equal(body.center.x, finishLine.x, 'The grid stays still before GO');
+    scene.car.controlsEnabled = true;
+    for (let step = 0; step < 60; step++) {
+        body.position.x += 12;
+        body.updateCenter();
+        body.velocity.set(720, 0);
+        world.emit('worldstep');
+        assert.ok(body.center.x <= finishLine.x, 'Holding reverse cannot push through the barrier');
+        assert.equal(body.velocity.x, 0);
+    }
+    body.position.x -= 30;
+    body.updateCenter();
+    body.velocity.set(-180, 0);
+    world.emit('worldstep');
+    assert.ok(body.center.x < finishLine.x - 30, 'Driving forward releases the car immediately');
+    assert.equal(body.velocity.x, -180);
+});
+
 test('physics-step integration updates body position once and removes its listener on scene exit', () => {
     const world = new EventEmitter(), events = new EventEmitter();
     const body = { position: { x: -30, y: -24 }, center: { x: -6, y: 0 }, radius: 24,
@@ -95,6 +209,7 @@ test('physics-step integration updates body position once and removes its listen
     assert.ok(body.center.x < -24);
     assert.equal(hits.length, 1);
     assert.ok(scene.car.contact.x < 0);
+    scene.physics.world = null;
     events.emit('shutdown');
     assert.equal(world.listenerCount('worldstep'), 0);
 });

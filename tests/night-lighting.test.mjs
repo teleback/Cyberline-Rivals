@@ -96,6 +96,46 @@ test('a light crossing block boundaries is indexed on both sides without losing 
     assert.equal(chunks.size, 4);
 });
 
+test('prewarmed lights stay drawable when the camera moves or zooms after the scene update', () => {
+    const lights = [];
+    for (let y = 0; y < 3; y++) for (let x = 0; x < 3; x++) {
+        lights.push({ x: x * 512 + 256, y: y * 512 + 256, radius: 10 });
+    }
+    let baked = 0, visibilityWrites = 0;
+    const lighting = Object.create(StaticNightLights.prototype);
+    Object.assign(lighting, { chunks: indexLightChunks({ lights, patches: [] }), cache: new Map(),
+        bake(key) {
+            baked++;
+            return { textureKey: key, image: { setVisible(visible) {
+                visibilityWrites++; this.visible = visible;
+            } } };
+        } });
+    // Scene.update sees the previous frame's bounds. Rendering advances
+    // the camera afterwards, without another lighting update in between.
+    lighting.update({ x: 512, y: 512, right: 1024, bottom: 1024 });
+    for (const view of [
+        { x: 528, y: 512, right: 1040, bottom: 1024 },
+        { x: 496, y: 512, right: 1008, bottom: 1024 },
+        { x: 512, y: 528, right: 1024, bottom: 1040 },
+        { x: 496, y: 496, right: 1008, bottom: 1008 },
+        { x: 448, y: 448, right: 1088, bottom: 1088 },
+    ]) {
+        for (const [key, chunk] of lighting.chunks) {
+            if (chunk.x >= view.right || chunk.x + 512 <= view.x
+                || chunk.y >= view.bottom || chunk.y + 512 <= view.y) continue;
+            assert.equal(lighting.cache.get(key)?.image.visible, true,
+                `Light block ${key} must already be drawable when the camera reveals it`);
+        }
+    }
+    lighting.update({ x: 512, y: 512, right: 1024, bottom: 1024 });
+    assert.equal(baked, 9, 'Moving within the prewarmed area must reuse its textures');
+    for (let frame = 0; frame < 120; frame++) {
+        const shift = frame / 10;
+        lighting.update({ x: 512 + shift, y: 512, right: 1024 + shift, bottom: 1024 });
+    }
+    assert.equal(visibilityWrites, 9, 'Movement within cached blocks must not revisit every light each frame');
+});
+
 test('real map light cache reuses blocks and releases distant textures across a full lap', () => {
     const chunks = indexLightChunks(collectNightSources(map, layers, definitions));
     const textures = new Set();

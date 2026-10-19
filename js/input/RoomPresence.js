@@ -1,4 +1,5 @@
 import MQTTClient from '../MQTTClient.js';
+import { ROOM_COUNT } from '../objects/Rooms.js';
 
 // A corrida publica continuamente. Sem novas mensagens, o piloto deixa de
 // contar como presente, inclusive se o navegador fechou sem avisar ao broker.
@@ -43,7 +44,7 @@ export default class RoomPresence {
                 const match = /^(\d+)\/player\/([^/]+)$/.exec(topic.slice(prefix.length));
                 if (!match) return;
                 const roomId = Number(match[1]);
-                if (roomId < 1 || roomId > 4) return;
+                if (roomId < 1 || roomId > ROOM_COUNT) return;
                 let state;
                 try { state = JSON.parse(buffer.toString()); } catch (_) { return; }
                 if (!state || state.id !== match[2] || typeof state.online !== 'boolean') return;

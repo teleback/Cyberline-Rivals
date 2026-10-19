@@ -1,7 +1,9 @@
 import TrackCollisions, { wallShapes } from '../objects/TrackCollisions.js';
+import { cacheStaticLayer } from '../objects/StaticMapCulling.js';
 import { playMusic, stopMusic } from '../fx/Music.js';
 import Car from "../objects/Car.js";
 import { getCarSkin } from "../objects/CarSkins.js";
+import { ROOM_CAPACITY } from "../objects/Rooms.js";
 import TurboFX from "../fx/TurboFX.js";
 import OilFX from "../fx/OilFX.js";
 import TurboAudio from "../fx/TurboAudio.js";
@@ -58,6 +60,7 @@ class Race extends Phaser.Scene {
     this.clockOffsets = new Map();
     this.networkRoundTrips = new Map();
     this.podiumShown = false;
+    this.returningToMenu = false;
     this.finishElapsedMs = null;
     this.finishPlace = null;
     this.raceRoundId = null;
@@ -112,7 +115,10 @@ class Race extends Phaser.Scene {
               : 1500 + index;
         layer.setDepth(depth);
       }
-      if (layer) this.mapLayers.push(layer);
+      if (layer) {
+        cacheStaticLayer(layer);
+        this.mapLayers.push(layer);
+      }
       if (layer && layerData.name === "Cyber placa") this.boostLayer = layer;
     });
 
@@ -195,7 +201,10 @@ class Race extends Phaser.Scene {
     // dos dois sabe o que o outro faz.
     this.fx = new TurboFX(this, this.car);
     this.carFX = new CarFX(this, this.car);
-    this.audio = new TurboAudio(this.car);
+    this.audio = new TurboAudio(this.car, this.sound?.context);
+    // Prepare the sound during the entrance, before the first turbo press.
+    this.time.delayedCall(100, () => this.audio.ensure());
+    this.events.once('shutdown', () => this.audio.destroy());
     // Motor + freio/derrapagem (loops do mp3 + síntese). Só lê o carro.
     this.engineAudio = new EngineAudio(this, this.car);
     this.events.once(
@@ -235,6 +244,7 @@ class Race extends Phaser.Scene {
 
     this.dropIn = new CarDropIn(this, this.car);
     this.dropIn.play(startX, networkStartY, {
+      color: getCarSkin(this.carSkin).neon,
       onLand: () => this.onLocalCarReady(),
     });
 
@@ -242,11 +252,14 @@ class Race extends Phaser.Scene {
     // corrida anterior não podem ocupar a sala nem reposicionar o rival.
     this.initMultiplayer();
 
-    this.input.keyboard.on("keydown-M", () => {
+    const toggleSound = () => {
       const muted = this.audio.toggleMute();
       this.sound.mute = muted;
       this.muteLabel.setText(muted ? "SOM: OFF  [M]" : "SOM: ON  [M]");
-    });
+    };
+    const keyboard = this.input.keyboard;
+    keyboard.on("keydown-M", toggleSound);
+    this.events.once('shutdown', () => keyboard.off('keydown-M', toggleSound));
   }
 
   async initMultiplayer() {
@@ -446,7 +459,7 @@ class Race extends Phaser.Scene {
     }
 
     let remote = this.remotePlayers[state.id];
-    if (!remote && Object.keys(this.remotePlayers).length >= 1) return;
+    if (!remote && Object.keys(this.remotePlayers).length >= ROOM_CAPACITY - 1) return;
     if (!remote) {
       const initialX = this.finishLineX;
       const initialY = this.startLineY + (this.playerId.localeCompare(state.id) < 0 ? 84 : -84);
@@ -515,6 +528,7 @@ class Race extends Phaser.Scene {
         this.uiCam.ignore([sprite, label]);
       }
       this.nightLighting?.addCar(sprite, state.skin);
+      if (!this.raceTimerStarted) this.animateRemoteEntrance(remote);
     }
 
     if (
@@ -565,7 +579,7 @@ class Race extends Phaser.Scene {
     if (typeof state.ready === 'boolean') remote.ready = state.ready;
     if ('roundId' in state) remote.roundId = typeof state.roundId === "string" ? state.roundId : null;
     if (typeof state.finished === 'boolean') {
-      remote.finished = state.finished && remote.roundId === this.raceRoundId;
+      remote.finished ||= state.finished && remote.roundId === this.raceRoundId;
     }
     if (Number.isInteger(state.completedLaps)) {
       remote.completedLaps = Math.max(0, Math.min(this.totalLaps, state.completedLaps));
@@ -594,7 +608,7 @@ class Race extends Phaser.Scene {
       remote.vy = 0;
       remote.angularVelocity = 0;
       this.placeRemoteOnGrid(remote);
-    } else if (hasMotion && remote.roundId === this.raceRoundId) {
+    } else if (hasMotion && !remote.finished && remote.roundId === this.raceRoundId) {
       remote.vx = Number.isFinite(state.vx) ? state.vx : 0;
       remote.vy = Number.isFinite(state.vy) ? state.vy : 0;
       remote.angularVelocity = Number.isFinite(state.angularVelocity) ? state.angularVelocity : 0;
@@ -610,7 +624,12 @@ class Race extends Phaser.Scene {
         angularVelocity: remote.angularVelocity,
       });
     }
-    if (remote.collider) remote.collider.active = this.raceTimerStarted && !remote.finished;
+    if (remote.collider) remote.collider.active = this.raceTimerStarted && !this.raceFinished && !remote.finished;
+    if (remote.finished && !remote.hiddenAtFinish) {
+      remote.hiddenAtFinish = true;
+      this.hideFinishedCar(remote.sprite, remote.label);
+      resetRemoteMotion(remote);
+    }
 
     if (state.tint !== undefined) remote.tint = Number(state.tint) || 0xffffff;
     if (state.skin && remote.sprite.texture.key !== getCarSkin(state.skin).texture) {
@@ -634,10 +653,26 @@ class Race extends Phaser.Scene {
     const labelText = `${remote.nick}  ${remoteStatus}`;
     if (remote.label.text !== labelText) remote.label.setText(labelText);
     remote.sprite.setTint(state.turboActive ? 0xff5577 : remote.tint);
-    remote.sprite.setScale(1 + remote.turboIntensity * 0.045);
+    if (!remote.entering) remote.sprite.setScale(1 + remote.turboIntensity * 0.045);
     this.updateLobbyStatus();
     this.tryCoordinateStart();
     this.tryResolvePodium();
+  }
+
+  animateRemoteEntrance(remote) {
+    remote.entering = true;
+    remote.label.setVisible(false);
+    remote.dropIn = new CarDropIn(this, remote.sprite);
+    remote.dropIn.play(remote.sprite.x, remote.sprite.y, {
+      color: getCarSkin(remote.skin).neon,
+      shake: false,
+      onLand: () => {
+        remote.entering = false;
+        remote.label.setVisible(true);
+        this.placeRemoteOnGrid(remote);
+        this.tryCoordinateStart();
+      },
+    });
   }
 
   pushRemoteState(remote, state) {
@@ -648,7 +683,7 @@ class Race extends Phaser.Scene {
     const now = Date.now();
     const nowPerformance = performance.now();
     Object.entries(this.remotePlayers).forEach(([id, remote]) => {
-      if (!remote.online) return;
+      if (!remote.online || remote.finished) return;
       if (now - remote.lastSeen > REMOTE_TIMEOUT) {
         this.removeRemotePlayer(id);
         return;
@@ -685,6 +720,7 @@ class Race extends Phaser.Scene {
       return;
     }
     remote.collider?.destroy();
+    remote.dropIn?.destroy();
     this.nightLighting?.removeCar(remote.sprite);
     remote.sprite?.destroy();
     remote.label?.destroy();
@@ -707,6 +743,7 @@ class Race extends Phaser.Scene {
       this.localCarReady &&
       this.startAlignmentComplete &&
       opponents.length === 1 &&
+      !opponents[0].entering &&
       opponents[0].ready
     );
   }
@@ -735,7 +772,7 @@ class Race extends Phaser.Scene {
   }
 
   placeRemoteOnGrid(remote) {
-    if (!remote?.sprite) return;
+    if (!remote?.sprite || remote.entering) return;
     const remoteSlot = this.playerId.localeCompare(remote.id) < 0 ? 1 : 0;
     const x = this.finishLineX;
     const y = this.startLineY + (remoteSlot === 0 ? -84 : 84);
@@ -1597,17 +1634,32 @@ class Race extends Phaser.Scene {
     // Some o joystick: a tela de pontuação precisa receber os toques.
     hideTouchControls();
 
-    // Para o carro exatamente ao cruzar a chegada.
+    // Retira o carro da pista; os dados continuam disponíveis para o pódio.
     this.car.controlsEnabled = false;
     if (this.engineAudio) this.engineAudio.fadeOut();
     this.car.setVelocity(0, 0);
     this.car.body.setAcceleration(0, 0);
     this.car.setAngularVelocity(0);
+    this.car.isTurboActive = false;
+    this.car.turboIntensity = 0;
+    this.car.isDrifting = false;
+    this.car.isBraking = false;
+    this.hideFinishedCar(this.car);
+    for (const remote of Object.values(this.remotePlayers)) {
+      if (remote.collider) remote.collider.active = false;
+    }
 
     // A colocação só é definida depois de receber a chegada do adversário.
     this.publishNetworkState(true, true);
     this.showWaitingForOpponent();
     this.tryResolvePodium();
+  }
+
+  hideFinishedCar(car, label) {
+    car.setVisible(false);
+    car.body.enable = false;
+    label?.setVisible(false);
+    this.nightLighting?.removeCar(car);
   }
 
   showWaitingForOpponent() {
@@ -1673,6 +1725,14 @@ class Race extends Phaser.Scene {
 
   showScorePanel() {
     this.raceResults.showResults(this.raceResultsData);
+  }
+
+  returnToMenu() {
+    if (this.returningToMenu || this.raceResults?.state !== 'settled') return;
+    this.returningToMenu = true;
+    // Starting the menu shuts down the race, publishes the departure and
+    // releases its controls, audio, animations and multiplayer connection.
+    this.scene.start('MenuJogar');
   }
 
   createChampionOverlay() {

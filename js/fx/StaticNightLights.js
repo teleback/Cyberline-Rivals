@@ -1,5 +1,6 @@
 const CHUNK_SIZE = 512;
 const CACHE_LIMIT = 24;
+const VIEW_MARGIN = 96;
 
 // Index once. Only nearby blocks are drawn; a bounded LRU avoids allocating
 // a full-map texture or keeping hundreds of separate light sprites alive.
@@ -39,7 +40,7 @@ export default class StaticNightLights {
         context.globalCompositeOperation = 'source-over';
         for (const light of chunk.lights) {
             const image = this.scene.textures.get(this.glowTexture(light.color)).getSourceImage();
-            context.globalAlpha = 0.26;
+            context.globalAlpha = 0.18;
             context.drawImage(image, light.x - light.radius - chunk.x, light.y - light.radius - chunk.y,
                 light.radius * 2, light.radius * 2);
         }
@@ -47,7 +48,7 @@ export default class StaticNightLights {
         for (const patch of chunk.patches) {
             const frame = this.scene.textures.getFrame('night-emissive', patch.frame);
             context.save();
-            context.globalAlpha = patch.alpha * 0.68;
+            context.globalAlpha = patch.alpha * 0.52;
             context.translate(patch.x - chunk.x, patch.y - chunk.y);
             context.rotate(patch.rotation || 0);
             context.scale(patch.flipX ? -1 : 1, patch.flipY ? -1 : 1);
@@ -63,23 +64,32 @@ export default class StaticNightLights {
     }
 
     update(view) {
-        const visible = new Set();
-        // A small margin prewarms blocks before they enter the viewport.
-        for (let y = Math.floor((view.y - 96) / CHUNK_SIZE); y <= Math.floor((view.bottom + 96) / CHUNK_SIZE); y++) {
-            for (let x = Math.floor((view.x - 96) / CHUNK_SIZE); x <= Math.floor((view.right + 96) / CHUNK_SIZE); x++) {
+        const minX = Math.floor((view.x - VIEW_MARGIN) / CHUNK_SIZE);
+        const minY = Math.floor((view.y - VIEW_MARGIN) / CHUNK_SIZE);
+        const maxX = Math.floor((view.right + VIEW_MARGIN) / CHUNK_SIZE);
+        const maxY = Math.floor((view.bottom + VIEW_MARGIN) / CHUNK_SIZE);
+        const range = this.range;
+        if (range && range.minX === minX && range.minY === minY
+            && range.maxX === maxX && range.maxY === maxY) return;
+        this.range = { minX, minY, maxX, maxY };
+        const nearby = new Set();
+        // worldView is finalized during rendering, after the scene update.
+        // Keep the margin visible too, so movement and turbo zoom cannot
+        // expose a prewarmed block that was hidden using last frame's view.
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
                 const key = `${x},${y}`;
                 const chunk = this.chunks.get(key);
                 if (!chunk) continue;
-                visible.add(key);
+                nearby.add(key);
                 const entry = this.cache.get(key) || this.bake(key, chunk);
                 this.cache.delete(key);
                 this.cache.set(key, entry);
-                entry.image.setVisible(chunk.x < view.right && chunk.x + CHUNK_SIZE > view.x
-                    && chunk.y < view.bottom && chunk.y + CHUNK_SIZE > view.y);
+                entry.image.setVisible(true);
             }
         }
         for (const [key, entry] of this.cache) {
-            if (visible.has(key)) continue;
+            if (nearby.has(key)) continue;
             entry.image.setVisible(false);
             if (this.cache.size > CACHE_LIMIT) {
                 entry.image.destroy();

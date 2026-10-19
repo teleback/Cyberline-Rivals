@@ -30,7 +30,7 @@ Três fases, e cada uma tem um som e uma imagem próprios:
 1. **O soco.** No frame do acionamento, um impulso instantâneo de velocidade,
    flash, shake curto, explosão de faíscas e um chiado seco.
 2. **A rampa.** A turbina "enche" ao longo de ~0.9s. O empurrão cresce, a
-   imagem entorta cada vez mais, o assobio sobe de tom, o volante fica mais
+   rastro fica mais intenso, o assobio sobe de tom, o volante fica mais
    pesado. Você sente que está carregando alguma coisa.
 3. **A conta.** Esvaziou o tanque → **superaquece**: turbo travado por 1.8s,
    recarga pela metade, tela pisca vermelha, tranco forte. Bater na parede em
@@ -41,22 +41,23 @@ SHIFT o tempo todo — e aí o efeito vira papel de parede.
 
 ## Pós-processamento
 
-Quatro filtros na câmera principal (API de Filters do Phaser 4), todos com o
-parâmetro amarrado à intensidade:
+No computador com WebGL, a câmera usa apenas uma matriz de cor suave:
+a saturação sobe até 0,18 e o brilho até 4%. A matriz é reaproveitada enquanto
+a intensidade permanece na mesma faixa. O glow do carro também ficou menor.
+O turbo mantém o zoom, a antecipação da câmera, as chamas e os rastros, com a
+pista nítida e sem os passes de blur, distorção e vinheta.
 
-| Filtro | O que faz |
-|---|---|
-| Barrel | estufa a imagem; a periferia corre mais que o centro |
-| Blur direcional | borrão no eixo do movimento, crescendo de forma quadrática |
-| ColorMatrix | satura, clareia e puxa o matiz — o mundo acende |
-| Vignette | fecha e tinge as bordas de magenta; vira túnel |
+No renderizador Canvas, a matriz de cor é pulada e os demais efeitos continuam
+funcionando.
 
-Exigem WebGL. Se o renderer cair pra Canvas, essa camada é pulada e o resto
-continua funcionando.
+No celular (ou com `?touch=1`), os filtros de câmera e o glow por shader são
+pulados mesmo em WebGL. As partículas têm limites menores, os rastros usam
+quatro sprites reutilizados sem criar tweens, e a sombra CSS animada fica
+desativada. O som é preparado durante a entrada do carro e usa o contexto de
+áudio do jogo, liberando seus nós ao voltar ao menu.
 
-**O HUD ficou numa segunda câmera**, sem filtro. Era o ponto mais fácil de
-errar: se o HUD passasse pelo mesmo pipeline, o texto entortaria com o barrel e
-borraria com o blur justamente na hora em que você mais precisa ler o tanque.
+**O HUD fica numa segunda câmera**, com os textos e o minimapa livres dos
+efeitos de cor da corrida.
 
 ## Ajustes que talvez você queira mexer
 
@@ -67,8 +68,8 @@ Tudo concentrado no topo de `Car.js`:
 - `overheatDuration` (1800ms) — o tamanho da punição.
 - `turboDrainPerSec` / `turboRechargePerSec` — o ritmo do recurso.
 
-E no `update()` do `TurboFX.js`, os tetos de cada efeito (`0.16` do barrel,
-`1.6` do blur, `0.075` do zoom). Se quiser algo mais agressivo, o barrel e o
-zoom são os que dão mais retorno; o blur é o que suja a imagem mais rápido.
+No `TUNING` do `TurboFX.js`, `zoomOut` controla a abertura da câmera,
+`streakAlpha` controla a opacidade dos riscos, `glow` controla o brilho do
+carro e `saturation`/`brightness` controlam a mudança suave de cor.
 
 O som liga e desliga com **M**.

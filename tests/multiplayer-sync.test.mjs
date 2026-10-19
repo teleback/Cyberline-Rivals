@@ -19,7 +19,7 @@ function image(x, y, key) {
         setRotation(value) { this.rotation = value; return this; },
         setTexture(key) { this.texture.key = key; return this; },
         setTint() { return this; }, setDepth() { return this; },
-        setVisible() { return this; }, setScale() { return this; },
+        setVisible(value) { this.visible = value; return this; }, setScale() { return this; },
         destroy() { this.destroyed = true; },
     };
     sprite.body = {
@@ -33,7 +33,7 @@ function label() {
     return { setText(text) { this.text = text; return this; },
         setPosition(x, y) { Object.assign(this, { x, y }); return this; },
         setOrigin() { return this; }, setDepth() { return this; },
-        setVisible() { return this; }, destroy() { this.destroyed = true; } };
+        setVisible(value) { this.visible = value; return this; }, destroy() { this.destroyed = true; } };
 }
 function scene() {
     const race = new Race();
@@ -46,6 +46,7 @@ function scene() {
         physics: { add: { image, collider: () => ({ active: false, destroy() { this.destroyed = true; } }) } },
         add: { text: label }, car: image(5152, 3404, 'car-pink-v2'),
         updateLobbyStatus() {}, tryCoordinateStart() {}, tryResolvePodium() {},
+        animateRemoteEntrance() {},
         publishNetworkState() {},
     });
     return race;
@@ -213,4 +214,35 @@ test('an unrelated round cannot erase a confirmed finish or reactivate its colli
     assert.equal(remote.completedLaps, 3);
     assert.equal(remote.collider.active, false);
     assert.equal(remote.lastMessageSeq, 2);
+});
+
+test('a finished rival disappears with its label and physics while its result remains available', () => {
+    const race = scene(), removedLights = [];
+    race.nightLighting = { addCar() {}, removeCar: car => removedLights.push(car) };
+    race.receiveRemotePlayer(packet(1, 100));
+    race.raceTimerStarted = true;
+    race.raceRoundId = 'round-1';
+    race.receiveRemotePlayer(packet(2, 200, 5100));
+    const remote = race.remotePlayers.b;
+    assert.equal(remote.collider.active, true);
+    race.receiveRemotePlayer(packet(3, 300, 5100, {
+        finished: true, finishElapsedMs: 120000, completedLaps: 3,
+    }));
+    assert.equal(remote.sprite.visible, false);
+    assert.equal(remote.label.visible, false);
+    assert.equal(remote.sprite.body.enable, false);
+    assert.equal(remote.collider.active, false);
+    assert.equal(remote.stateBuffer.length, 0);
+    assert.deepEqual(removedLights, [remote.sprite]);
+    race.updateRemotePlayers();
+    race.receiveRemotePlayer({ ...presence, seq: 4, ts: 1700000000400 });
+    race.receiveRemotePlayer(packet(5, 500, 5050));
+    assert.equal(remote.finished, true);
+    assert.equal(remote.sprite.visible, false);
+    assert.equal(remote.collider.active, false);
+    assert.equal(remote.finishElapsedMs, 120000);
+    assert.equal(remote.completedLaps, 3);
+    assert.equal(remote.stateBuffer.length, 0);
+    assert.equal(remote.sprite.destroyed, undefined);
+    assert.equal(removedLights.length, 1);
 });

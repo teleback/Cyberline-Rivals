@@ -3,8 +3,9 @@ import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import RaceResults, { resultsLayout } from '../js/fx/RaceResults.js';
 
-class Object2D {
+class Object2D extends EventEmitter {
     constructor(type, x, y, value, extra, color, alpha) {
+        super();
         Object.assign(this, { type, x, y, value, originX: type === 'text' ? 0 : 0.5,
             originY: type === 'text' ? 0 : 0.5, alpha: 1, angle: 0, scaleX: 1, scaleY: 1 });
         if (type === 'text') this.style = extra;
@@ -20,6 +21,9 @@ class Object2D {
     setScale(value) { this.scaleX = this.scaleY = value; return this; }
     setTint(value) { this.tint = value; return this; }
     setStrokeStyle() { return this; }
+    setVisible(value) { this.visible = value; return this; }
+    setInteractive() { this.interactive = true; return this; }
+    setFillStyle(value) { this.color = value; return this; }
     setDisplaySize(width, height) { Object.assign(this, { width, height }); return this; }
     setText(value) { this.value = value; return this; }
     destroy() { this.destroyed = true; }
@@ -54,6 +58,7 @@ function setup(width = 960, height = 540) {
         computeFinalScore() { return { total: this.pendingEarned }; },
         formatRaceTime: value => value === 91000 ? '01:31.00' : '01:37.50',
         scoreTone: (...args) => tones.push(args), sound: { mute: false },
+        returnToMenu() { this.returns = (this.returns || 0) + 1; },
     };
     return { scene, drawn, ignored, tweenQueue, timerQueue, tones, results: new RaceResults(scene) };
 }
@@ -100,6 +105,59 @@ test('both cars, standings and reward text fit desktop and small landscape cards
         assert.equal(scene.hud.length, results.objects.length + 1);
         results.destroy();
     }
+});
+
+test('return button waits for rewards, supports touch and returns only once', () => {
+    const { results, scene } = setup();
+    results.showPodium(data);
+    assert.equal(results.returnButton.visible, false);
+    results.returnButton.emit('pointerdown');
+    assert.equal(scene.returns, undefined);
+    results.showResults(data);
+    const skip = { key: 'Enter' };
+    scene.input.keyboard.emit('keydown', skip);
+    assert.equal(results.state, 'settled');
+    assert.equal(results.returnButton.visible, true);
+    assert.equal(results.returnButton.interactive, true);
+    assert.equal(scene.returns, undefined, 'revealing results never also exits');
+    results.returnButton.emit('pointerdown');
+    results.returnButton.emit('pointerdown');
+    assert.equal(scene.returns, 1);
+    scene.events.emit('shutdown');
+    assert.equal(scene.input.keyboard.listenerCount('keydown'), 0);
+    assert.equal(scene.events.listenerCount('update'), 0);
+});
+
+test('keyboard confirmation exits after results without responding to held or mute keys', () => {
+    const { results, scene } = setup();
+    results.showPodium(data);
+    results.showResults(data);
+    results.settleRewards(false);
+    scene.input.keyboard.emit('keydown', { key: 'm' });
+    scene.input.keyboard.emit('keydown', { key: 'Enter', repeat: true });
+    assert.equal(scene.returns, undefined);
+    scene.input.keyboard.emit('keydown', { key: 'Enter' });
+    assert.equal(scene.returns, 1);
+    results.destroy();
+});
+
+test('gamepad confirmation requires a fresh press after results settle', () => {
+    const pad = { connected: true, id: 'test', mapping: 'standard', axes: [0, 0],
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) };
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [pad] } });
+    const { results, scene } = setup();
+    results.showPodium(data);
+    results.showResults(data);
+    results.settleRewards(false);
+    pad.buttons[1].pressed = true;
+    scene.events.emit('update');
+    assert.equal(scene.returns, undefined);
+    pad.buttons[1].pressed = false;
+    scene.events.emit('update');
+    pad.buttons[1].pressed = true;
+    scene.events.emit('update');
+    assert.equal(scene.returns, 1);
+    results.destroy();
 });
 
 test('pending pickups refresh earned currency while awaiting the rival without rebuilding the car', () => {

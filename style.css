@@ -62,6 +62,11 @@ body {
             rgba(0, 229, 255, calc(0.1 + var(--turbo) * 0.35));
 }
 
+/* Sombras difusas animadas exigem repintar o canvas no celular. */
+.is-touch #game-container canvas {
+    box-shadow: none;
+}
+
 
 /* =========================================================================
    CELULAR / TABLET

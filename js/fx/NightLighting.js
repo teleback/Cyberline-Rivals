@@ -71,7 +71,7 @@ export default class NightLighting {
         const sources = collectNightSources(scene.map, scene.mapLayers, scene.cache.json.get('nightSources'));
         // The night wash covers the world, cars and effects. The separate UI
         // camera ignores it, keeping the HUD and minimap clear.
-        this.wash = scene.add.rectangle(0, 0, 1, 1, 0x03091c, 0.18)
+        this.wash = scene.add.rectangle(0, 0, 1, 1, 0x03091c, 0.10)
             .setScrollFactor(0).setDepth(1700);
         this.worldObjects.push(this.wash);
         this.staticLights = new StaticNightLights(scene, sources, color => this.createGlowTexture(color));
@@ -119,6 +119,6 @@ export default class NightLighting {
         this.wash.setPosition(camera.width / 2, camera.height / 2)
             .setDisplaySize(camera.width / camera.zoom + 4, camera.height / camera.zoom + 4);
         this.staticLights.update(camera.worldView);
-        for (const lights of this.carLights.values()) lights.update();
+        for (const lights of this.carLights.values()) lights.update(camera.worldView);
     }
 }

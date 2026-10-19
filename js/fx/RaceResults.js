@@ -1,4 +1,5 @@
 import { getCarSkin } from '../objects/CarSkins.js';
+import { readGamepad } from '../input/GamepadInput.js';
 
 const FONT = 'monospace';
 const GOLD = 0xffd16b;
@@ -13,9 +14,9 @@ export function resultsLayout(width, height) {
     const compact = height < 440;
     const margin = width < 700 ? 14 : 38;
     const gap = width < 700 ? 12 : 22;
-    const top = compact ? 70 : 92;
+    const top = compact ? 70 : 88;
     const cardWidth = (width - margin * 2 - gap) / 2;
-    const cardHeight = height - top - (compact ? 30 : 40);
+    const cardHeight = height - top - 78;
     return { width, height, compact, margin, gap, top, cardWidth, cardHeight,
         stacked: cardWidth < 270,
         cards: [margin, margin + cardWidth + gap].map(x => ({ x, y: top, width: cardWidth, height: cardHeight })) };
@@ -33,9 +34,22 @@ export default class RaceResults {
         this.state = 'hidden';
         this.rows = [];
         this.destroyed = false;
+        this.returning = false;
+        this.padConfirmArmed = false;
         this.onSkip = event => {
             if (event?.key?.toLowerCase() === 'm') return;
+            this.skipEvent = event;
             this.settleRewards();
+        };
+        this.onReturnKey = event => {
+            if (event === this.skipEvent || event?.repeat) return;
+            if (['Enter', ' ', 'Escape'].includes(event?.key)) this.returnToMenu();
+        };
+        this.onUpdate = () => {
+            if (this.state !== 'settled') return;
+            const pad = readGamepad();
+            if (!pad.any) this.padConfirmArmed = true;
+            else if (this.padConfirmArmed) this.returnToMenu();
         };
         this.onShutdown = () => this.destroy();
         scene.events.once('shutdown', this.onShutdown);
@@ -102,6 +116,8 @@ export default class RaceResults {
 
     clear() {
         this.cancelRewards();
+        this.scene.input?.keyboard?.off('keydown', this.onReturnKey);
+        this.scene.events.off('update', this.onUpdate);
         this.tweens.forEach(tween => tween.stop?.());
         this.timers.forEach(timer => timer.remove?.(false));
         this.tweens.clear();
@@ -113,16 +129,20 @@ export default class RaceResults {
         this.rows = [];
         this.waitingTotal = null;
         this.waitingTime = null;
+        this.returnButton = null;
+        this.returnLabel = null;
     }
 
     background() {
         const { width, height } = this.scene.scale;
-        this.register(this.scene.add.rectangle(width / 2, height / 2, width, height, 0x030814, 0.95), DEPTH);
+        this.register(this.scene.add.rectangle(width / 2, height / 2, width, height, 0x060b1b), DEPTH);
         // A few static bands add depth without an expensive screen effect.
         for (let index = 0; index < 3; index++) {
             this.register(this.scene.add.rectangle(width / 2, height * (0.2 + index * 0.3),
                 width, 1, 0x334267, 0.35), DEPTH + 1);
         }
+        this.register(this.scene.add.rectangle(0, 0, width * 0.38, 3, GOLD).setOrigin(0), DEPTH + 1);
+        this.register(this.scene.add.rectangle(width, height, width * 0.38, 3, 0x38d9ed).setOrigin(1), DEPTH + 1);
     }
 
     actualCar(x, y, driver, scale) {
@@ -184,14 +204,17 @@ export default class RaceResults {
         this.layout = resultsLayout(this.scene.scale.width, this.scene.scale.height);
         const l = this.layout;
         this.background();
-        this.text(l.width / 2, l.compact ? 12 : 20, 'RESULTADO DA CORRIDA', l.compact ? 22 : 28,
-            '#f5f8ff', { fontStyle: 'bold' }).setOrigin(0.5, 0);
-        this.subtitle = this.text(l.width / 2, l.compact ? 44 : 58,
-            '1º E 2º LUGAR • TEMPOS E TIJOLINHOS', l.compact ? 10 : 12, '#a2bad9').setOrigin(0.5, 0);
-        this.footer = this.text(l.width / 2, l.height - (l.compact ? 18 : 25), 'PREPARANDO AS RECOMPENSAS...',
+        this.text(l.width / 2, l.compact ? 9 : 13, 'CYBERLINE RIVALS  /  CLASSIFICAÇÃO FINAL',
+            l.compact ? 8 : 9, '#8ea4c5').setOrigin(0.5, 0);
+        this.text(l.width / 2, l.compact ? 23 : 29, 'CAMPEÃO DA NOITE', l.compact ? 24 : 30,
+            '#ffdd88', { fontStyle: 'bold' }).setOrigin(0.5, 0);
+        this.subtitle = this.text(l.width / 2, l.compact ? 53 : 66,
+            'A BANDEIRADA É SUA. OS GANHOS TAMBÉM.', l.compact ? 8 : 10, '#a2bad9').setOrigin(0.5, 0);
+        this.footer = this.text(l.width / 2, l.height - 65, 'PREPARANDO AS RECOMPENSAS...',
             l.compact ? 9 : 11, '#869cbc').setOrigin(0.5, 0);
         this.rows = results.slice(0, 2).map((driver, index) => this.buildDriver(driver, l.cards[index]));
         this.rows.forEach((row, index) => this.animateCar(row, index));
+        this.createReturnButton();
         this.later(650, () => this.confetti(this.rows[0]));
         [660, 880, 1109].forEach((frequency, index) => this.later(420 + index * 130, () => this.tone(frequency)));
     }
@@ -202,9 +225,11 @@ export default class RaceResults {
         const color = winner ? '#ffdd88' : '#d1e1f6';
         const inset = compact || stacked ? 14 : 22;
         const { x, y, width, height } = card;
-        this.register(s.add.rectangle(x, y, width, height, winner ? 0x171b2b : 0x0e1728)
-            .setOrigin(0).setStrokeStyle(1, accent, 0.5), DEPTH + 1);
+        this.register(s.add.rectangle(x, y, width, height, winner ? 0x1b1a29 : 0x101b30)
+            .setOrigin(0).setStrokeStyle(winner ? 2 : 1, accent, winner ? 0.75 : 0.35), DEPTH + 1);
         this.register(s.add.rectangle(x, y, width, 3, accent).setOrigin(0), DEPTH + 2);
+        this.register(s.add.rectangle(x + 1, y + 4, width - 2, compact || stacked ? 36 : 48, accent, 0.08)
+            .setOrigin(0), DEPTH + 2);
         this.text(x + inset, y + (compact ? 15 : 21), winner ? '1º CAMPEÃO' : '2º LUGAR',
             stacked ? 18 : compact ? 20 : 25, color, { fontStyle: 'bold' });
         this.text(x + width - inset, y + (compact ? 19 : 28), driver.local ? 'VOCÊ' : 'RIVAL', stacked ? 8 : 10,
@@ -218,8 +243,8 @@ export default class RaceResults {
             stacked ? 10 : compact ? 11 : 13, '#a7bcd6');
 
         const carX = x + width * (stacked ? 0.5 : 0.235);
-        const pedestalTop = y + height * (stacked ? compact ? 0.50 : 0.48 : 0.70);
-        const scale = stacked ? Math.min(0.57, height / 600) : Math.min(1.05, height / 320);
+        const pedestalTop = y + height * (stacked ? compact ? 0.53 : 0.50 : 0.70);
+        const scale = stacked ? Math.min(0.57, height / 760) : Math.min(1.05, height / 380);
         const carY = pedestalTop - 56 * scale;
         const pedestalWidth = Math.min(width * (stacked ? 0.45 : 0.37), 142);
         const pedestalHeight = Math.max(12, height * 0.065);
@@ -231,13 +256,13 @@ export default class RaceResults {
             winner ? 0x9d7130 : 0x3b526f).setStrokeStyle(1, accent, 0.8), DEPTH + 3);
         this.register(s.add.rectangle(carX, pedestalTop + 2, pedestalWidth, 4, accent), DEPTH + 4);
         this.text(carX, pedestalTop + pedestalHeight / 2, String(driver.place), compact ? 11 : 14,
-            winner ? '#fff0bf' : '#e3edff', { fontStyle: 'bold' }).setOrigin(0.5);
+            winner ? '#fff0bf' : '#e3edff', { fontStyle: 'bold' }).setOrigin(0.5).setDepth(DEPTH + 4);
         const car = this.actualCar(carX, carY, driver, scale);
 
         const rewardLeft = stacked ? x + inset : x + width * 0.46;
         const rewardRight = x + width - inset;
-        const rewardTop = y + height * (stacked ? compact ? 0.61 : 0.55 : 0.385);
-        const spacing = stacked ? height * (compact ? 0.053 : 0.058) : height * 0.081;
+        const rewardTop = y + height * (stacked ? compact ? 0.62 : 0.57 : 0.405);
+        const spacing = stacked ? height * (compact ? 0.047 : 0.055) : height * 0.085;
         const rewardSize = stacked ? compact ? 8 : 10 : compact ? 10 : 12;
         const lapReward = s.rewardRules?.lap ?? 10;
         const labels = ['Coletados', `Voltas (${amount(driver.laps)} ×${lapReward})`, 'Chegada', 'Vitória'];
@@ -253,6 +278,8 @@ export default class RaceResults {
         const dividerY = y + height * 0.825;
         this.register(s.add.rectangle(x + inset, dividerY, width - inset * 2, 1, accent, 0.32)
             .setOrigin(0), DEPTH + 2);
+        this.register(s.add.rectangle(x + 1, dividerY + 1, width - 2, height * 0.175 - 2,
+            accent, winner ? 0.10 : 0.055).setOrigin(0), DEPTH + 1);
         const totalY = y + height * 0.89;
         this.register(s.add.image(x + inset + 11, totalY + 3, 'tijolinho').setDisplaySize(stacked ? 22 : 27, stacked ? 22 : 27), DEPTH + 3);
         this.text(x + inset + (stacked ? 27 : 33), totalY - 4, 'TIJOLINHOS', stacked ? 8 : compact ? 9 : 11, '#d7b888');
@@ -260,6 +287,26 @@ export default class RaceResults {
         const total = this.text(rewardRight, totalY + 4, '0', stacked ? 25 : compact ? 29 : 38, color,
             { fontStyle: 'bold' }).setOrigin(1, 0.5).setAlpha(0.35);
         return { driver, card, car, halo, shadow, rewards, total, nickname, elapsed, carX, carY, scale, accent };
+    }
+
+    createReturnButton() {
+        const { width, height } = this.layout;
+        const buttonWidth = Math.min(280, width - 32);
+        this.returnButton = this.register(this.scene.add.rectangle(width / 2, height - 28,
+            buttonWidth, 44, 0x153441).setStrokeStyle(1, 0x69e4f2, 0.8), DEPTH + 3);
+        this.returnLabel = this.text(width / 2, height - 28, 'VOLTAR AO MENU  ›', 12, '#c8faff',
+            { fontStyle: 'bold' }).setOrigin(0.5).setDepth(DEPTH + 4);
+        this.returnButton.setVisible(false);
+        this.returnLabel.setVisible(false);
+        this.returnButton.on('pointerdown', () => this.returnToMenu());
+        this.returnButton.on('pointerover', () => this.returnButton.setFillStyle(0x225361));
+        this.returnButton.on('pointerout', () => this.returnButton.setFillStyle(0x153441));
+    }
+
+    returnToMenu() {
+        if (this.destroyed || this.returning || this.state !== 'settled') return;
+        this.returning = true;
+        this.scene.returnToMenu();
     }
 
     animateCar(row, index) {
@@ -351,6 +398,12 @@ export default class RaceResults {
         this.subtitle.setText('TODOS OS GANHOS EM TIJOLINHOS');
         const rules = this.scene.rewardRules || { lap: 10, finish: 20, victory: 50 };
         this.footer.setText(`+${rules.lap} POR VOLTA • +${rules.finish} CHEGADA • +${rules.victory} VITÓRIA`);
+        this.returnButton?.setVisible(true).setInteractive({ useHandCursor: true });
+        this.returnLabel?.setVisible(true);
+        this.scene.input?.keyboard?.off('keydown', this.onReturnKey);
+        this.scene.input?.keyboard?.on('keydown', this.onReturnKey);
+        this.scene.events.off('update', this.onUpdate);
+        this.scene.events.on('update', this.onUpdate);
         if (playTone) this.tone(1175, 0.16);
     }
 

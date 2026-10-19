@@ -1,71 +1,18 @@
-/**
- * TurboFX — todo o "feedback" do turbo num lugar só.
- *
- * REGRA DE OURO DESTE ARQUIVO: nada aqui liga ou desliga. Tudo é uma função
- * contínua de `car.turboIntensity` (0..1). Efeito que dá degrau denuncia que
- * é efeito; efeito que sobe e escorre junto com a turbina vira sensação.
- *
- * As camadas, de fora pra dentro:
- *
- *   1. PÓS-PROCESSAMENTO DE CÂMERA (Filters do Phaser 4)
- *      - Barrel: a imagem "estufa" nas bordas. É o velho truque de FOV dos
- *        jogos de corrida — a periferia corre mais que o centro.
- *      - Blur direcional: borrão no eixo do movimento. Entra tarde e fraco;
- *        borrão demais vira sujeira, não velocidade.
- *      - ColorMatrix: satura e clareia. O mundo "acende".
- *      - Vignette: tinge as bordas de magenta. Colore, quase não fecha.
- *
- * O bloco TUNING logo abaixo separa os efeitos que custam visão dos que não
- * custam. Se algo aqui ficar no caminho do jogador, é lá que se mexe.
- *
- *   2. CÂMERA (movimento, não shader)
- *      - Afasta o zoom (mais mundo na tela = mais rápido).
- *      - Micro-tremor contínuo via followOffset, proporcional à intensidade.
- *      - Solavanco de shake só no instante do acionamento.
- *
- *   3. MUNDO
- *      - Chamas e faíscas saindo do escapamento.
- *      - Rastro de "fantasmas" do carro (afterimage).
- *      - Glow no próprio sprite do carro.
- *
- *   4. TELA
- *      - Riscos de velocidade no eixo do movimento.
- *      - Flash no acionamento, piscada vermelha no superaquecimento.
- *      - Brilho do container HTML pulsando junto (ver style.css).
- *
- * Os filtros exigem WebGL. Se o renderer cair pra Canvas, a camada 1 é
- * simplesmente pulada e todo o resto continua funcionando.
- *
- * `worldObjects` e `uiObjects` existem porque o HUD vive numa câmera
- * separada: se o HUD passasse pelos mesmos filtros, o texto entortaria
- * junto com o mundo e ficaria ilegível justamente na hora em que você mais
- * precisa dele (olhando o tanque de turbo acabando).
- */
-/**
- * Painel de ajuste.
- *
- * Os quatro primeiros valores mexem em QUANTO DA PISTA VOCÊ ENXERGA, e são os
- * únicos aqui que podem atrapalhar o jogo de verdade. Efeito que tira visão
- * numa curva não é estilo, é bug de design — então eles ficam separados dos
- * outros, com o teto baixo de propósito.
- *
- * Todos são o valor do efeito quando a intensidade está em 1 (turbo cheio).
- * Zerar qualquer um desliga aquele efeito sem quebrar nada.
- */
+import { wantsTouchControls } from '../input/TouchControls.js';
+
+// Turbo feedback uses camera anticipation, exhaust, pooled trails and a
+// restrained color filter. Full-screen blur and distortion hide upcoming
+// curves and require extra render targets, so the race keeps a clear image.
 const TUNING = {
-    // --- mexem na visão: subir com parcimônia ---
-    barrel: 0.05,        // deformação nas bordas
-    blur: 0.22,          // borrão direcional
-    vignetteClose: 0.10, // o quanto a vinheta fecha
+    // Leitura da pista.
     streakAlpha: 0.26,   // opacidade dos riscos de velocidade
 
-    // --- não atrapalham a leitura: pode exagerar à vontade ---
+    // Câmera e efeitos do carro.
     zoomOut: 0.085,      // afasta a câmera (na verdade AUMENTA o campo de visão)
-    saturation: 0.42,
-    brightness: 0.12,
-    hueShift: -7,
+    saturation: 0.18,
+    brightness: 0.04,
     rumble: 1.3,         // tremor em pixels
-    glow: 6,             // brilho no carro
+    glow: 3,             // brilho no carro
     ghostAlpha: 0.38     // opacidade do rastro
 };
 
@@ -74,6 +21,7 @@ export default class TurboFX {
         this.scene = scene;
         this.car = car;
         this.cam = scene.cameras.main;
+        this.lite = wantsTouchControls();
 
         this.baseZoom = this.cam.zoom;
         this.k = 0;          // intensidade atual, copiada do carro
@@ -82,6 +30,7 @@ export default class TurboFX {
         this._ghostTimer = 0;
         this._angleTimer = 0;
         this._ghostIndex = 0;
+        this._cssTurbo = '';
         this.lookX = 0;
         this.lookY = 0;
 
@@ -138,29 +87,14 @@ export default class TurboFX {
     // ------------------------------------------------------------------
     createFilters() {
         this.filters = null;
-        if (!this.scene.renderer || !this.scene.renderer.gl) return;
+        // Full-screen render targets and blur passes cause the activation
+        // hitch on mobile GPUs. Keep the camera and exhaust feedback there.
+        if (this.lite || !this.scene.renderer || !this.scene.renderer.gl) return;
 
-        const list = this.cam.filters.internal;
-
-        // Ordem importa: deforma -> borra -> colore -> escurece as bordas.
-        this.fBarrel = list.addBarrel(1);
-        this.fBlur = list.addBlur(0, 1, 0, 0, 0xffffff, 1);
-        this.fColor = list.addColorMatrix();
-        this.fVignette = list.addVignette(0.5, 0.5, 0.85, 0.35);
-
-        this.filters = [this.fBarrel, this.fBlur, this.fColor, this.fVignette];
-
-        // Custam GPU mesmo sem efeito nenhum aplicado, então ficam desligados
-        // até o turbo encostar neles. A iluminação noturna já dá contraste
-        // ao cenário; a vinheta também fica desligada fora do turbo.
-        this.fBarrel.active = false;
-        this.fBlur.active = false;
+        this.fColor = this.cam.filters.internal.addColorMatrix();
         this.fColor.active = false;
-        this.fVignette.active = false;
-
-        this.colFrom = new Phaser.Display.Color(10, 12, 20);
-        this.colTo = new Phaser.Display.Color(255, 45, 85);
-        this.fVignette.setColor(0x0a0c14);
+        this.filters = [this.fColor];
+        this.lastColorStep = -1;
     }
 
     // ------------------------------------------------------------------
@@ -176,9 +110,9 @@ export default class TurboFX {
             alpha: { start: 0.85, end: 0 },
             tint: [0x29cfff, 0x9eefff, 0xff39d4],
             blendMode: 'ADD',
-            frequency: 14,
+            frequency: this.lite ? 36 : 14,
             quantity: 1,
-            maxAliveParticles: 80,
+            maxAliveParticles: this.lite ? 16 : 80,
             emitting: false
         }).setDepth(990);
 
@@ -191,9 +125,9 @@ export default class TurboFX {
             alpha: { start: 1, end: 0 },
             tint: [0x29cfff, 0xffffff, 0xff39d4],
             blendMode: 'ADD',
-            frequency: 26,
+            frequency: this.lite ? 90 : 26,
             quantity: 1,
-            maxAliveParticles: 40,
+            maxAliveParticles: this.lite ? 12 : 40,
             emitting: false
         }).setDepth(991);
 
@@ -204,7 +138,7 @@ export default class TurboFX {
         // Pool fixo de fantasmas. Criar e destruir um sprite a cada 45ms em
         // velocidade máxima geraria lixo suficiente pra dar engasgo.
         this.ghosts = [];
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < (this.lite ? 4 : 12); i++) {
             const g = this.scene.add.image(0, 0, this.car.texture.key)
                 .setVisible(false)
                 .setDepth(980)
@@ -217,7 +151,7 @@ export default class TurboFX {
         // padding o brilho é cortado na borda do frame de 64x64 e sobra um
         // quadrado luminoso em volta do carro.
         this.carGlow = null;
-        if (this.scene.renderer && this.scene.renderer.gl && this.car.enableFilters) {
+        if (!this.lite && this.scene.renderer && this.scene.renderer.gl && this.car.enableFilters) {
             this.carGlow = this.car.enableFilters()
                 .filters.internal.addGlow(0x00e5ff, 0, 0, 1.2, false, 4, 12);
             if (this.carGlow.setPaddingOverride) this.carGlow.setPaddingOverride(null);
@@ -241,8 +175,9 @@ export default class TurboFX {
             alpha: { start: TUNING.streakAlpha, end: 0 },
             tint: [0xffffff, 0x9be9ff],
             blendMode: 'ADD',
-            frequency: 24,
-            quantity: 2,
+            frequency: this.lite ? 100 : 24,
+            quantity: this.lite ? 1 : 2,
+            maxAliveParticles: this.lite ? 6 : 40,
             angle: 0,
             rotate: 0,
             emitZone: {
@@ -270,12 +205,12 @@ export default class TurboFX {
     onStart() {
         this.flashAlpha = 0.20;
         this.cam.shake(140, 0.005);
-        this.sparks.explode(14, this.exhaustX(), this.exhaustY());
+        this.sparks.explode(this.lite ? 5 : 14, this.exhaustX(), this.exhaustY());
     }
 
     onStop() {
         // Alívio de pressão: uma cusparada de faísca ao soltar.
-        this.sparks.explode(6, this.exhaustX(), this.exhaustY());
+        this.sparks.explode(this.lite ? 3 : 6, this.exhaustX(), this.exhaustY());
     }
 
     onOverheat() {
@@ -285,7 +220,7 @@ export default class TurboFX {
         this.flashAlpha = 0.30;
         this.flash.fillColor = 0xff2d55;
         this.cam.shake(320, 0.010);
-        this.sparks.explode(34, this.exhaustX(), this.exhaustY());
+        this.sparks.explode(this.lite ? 10 : 34, this.exhaustX(), this.exhaustY());
     }
 
     /** Posição do escapamento: 22px atrás do centro, no eixo do carro. */
@@ -304,56 +239,18 @@ export default class TurboFX {
         this.k = k;
         const dt = Math.min(delta / 1000, 0.1);
 
-        // --- Pós-processamento ---
+        // A small color change needs one pass, without blur, distortion
+        // or a dark vignette. Rebuild its matrix only when it changes.
         if (this.filters) {
-            this.fVignette.active = k > 0.004;
-            if (k > 0.004) {
-                this.fBarrel.active = true;
-                this.fBlur.active = true;
-                this.fColor.active = true;
-
-                // Estufa a imagem — mas de leve. Acima de ~1.10 as bordas
-                // começam a esconder o que vem chegando, e num jogo em que
-                // você vê a pista de cima isso é informação perdida.
-                this.fBarrel.amount = 1 + TUNING.barrel * k;
-
-                // Borrão no eixo do movimento, reaproveitando a direção pra
-                // onde o carro já aponta.
-                const dir = car.rotation - Math.PI / 2;
-                this.fBlur.x = Math.abs(Math.cos(dir)) + 0.15;
-                this.fBlur.y = Math.abs(Math.sin(dir)) + 0.15;
-                // Cúbico, não quadrático: assim o borrão fica praticamente
-                // invisível até uns 70% de turbo e só marca presença no pico.
-                // O blur é o efeito que mais suja a imagem por unidade de
-                // "sensação", então ele é o primeiro a levar corte.
-                this.fBlur.strength = TUNING.blur * k * k * k;
-
-                // Atenção: os helpers (saturate/brightness/hue) ficam em
-                // `.colorMatrix`, não no controller — o controller só carrega
-                // a matriz. `false` no primeiro reseta a matriz, `true` nos
-                // seguintes acumula em cima dela.
+            const step = Math.round(k * 32);
+            this.fColor.active = step > 0;
+            if (step > 0 && step !== this.lastColorStep) {
+                const amount = step / 32;
                 const cm = this.fColor.colorMatrix;
-                cm.saturate(TUNING.saturation * k, false);
-                cm.brightness(1 + TUNING.brightness * k, true);
-                cm.hue(TUNING.hueShift * k, true);
-            } else {
-                this.fBarrel.active = false;
-                this.fBlur.active = false;
-                this.fColor.active = false;
+                cm.saturate(TUNING.saturation * amount, false);
+                cm.brightness(1 + TUNING.brightness * amount, true);
             }
-
-            // Vinheta: antes ela fechava de 0.85 pra 0.45, o que comia um
-            // pedaço grande dos cantos — e é nos cantos que aparece a curva
-            // seguinte. Agora ela quase não fecha; o trabalho dela passou a
-            // ser COLORIR a borda de magenta em vez de escondê-la. Dá o mesmo
-            // recado de "túnel" sem cobrar visão por isso.
-            this.fVignette.radius = 0.90 - TUNING.vignetteClose * k;
-            this.fVignette.strength = 0.18 + 0.14 * k;
-            this.fVignette.setColor(
-                Phaser.Display.Color.Interpolate.ColorWithColor(
-                    this.colFrom, this.colTo, 100, Math.round(k * 100)
-                )
-            );
+            this.lastColorStep = step;
         }
 
         this.updateCamera(dt, k);
@@ -369,18 +266,17 @@ export default class TurboFX {
         this.sparks.emitting = k > 0.35;
         if (burning) {
             // Mais turbo = jato mais denso e mais comprido.
-            this.flame.frequency = 22 - 16 * k;
-            this.flame.setParticleLifespan(180 + 220 * k);
+            this.flame.frequency = this.lite ? 46 - 16 * k : 22 - 16 * k;
+            this.flame.setParticleLifespan(180 + (this.lite ? 80 : 220) * k);
         }
 
         // --- Fantasmas ---
         this._ghostTimer -= delta;
         if (k > 0.3 && this._ghostTimer <= 0) {
-            this._ghostTimer = 42;
+            this._ghostTimer = this.lite ? 95 : 42;
             const g = this.ghosts[this._ghostIndex];
             this._ghostIndex = (this._ghostIndex + 1) % this.ghosts.length;
 
-            this.scene.tweens.killTweensOf(g);
             g.setPosition(car.x, car.y)
                 .setRotation(car.rotation)
                 .setScale(1)
@@ -388,14 +284,15 @@ export default class TurboFX {
                 .setAlpha(TUNING.ghostAlpha * k)
                 .setVisible(true);
 
-            this.scene.tweens.add({
-                targets: g,
-                alpha: 0,
-                scaleX: 1.12,
-                scaleY: 1.12,
-                duration: 260,
-                onComplete: () => g.setVisible(false)
-            });
+            g.turboBornAt = time;
+            g.turboAlpha = TUNING.ghostAlpha * k;
+        }
+        // Fade the fixed pool directly: no new tween or callback per trail.
+        for (const ghost of this.ghosts) {
+            if (!ghost.visible) continue;
+            const age = Math.min(1, (time - ghost.turboBornAt) / 260);
+            ghost.setAlpha(ghost.turboAlpha * (1 - age)).setScale(1 + 0.12 * age);
+            if (age >= 1) ghost.setVisible(false);
         }
 
         // --- Glow do carro ---
@@ -431,7 +328,7 @@ export default class TurboFX {
         const streaking = k > 0.45;
         this.streaks.emitting = streaking;
         if (streaking) {
-            this.streaks.frequency = 42 - 24 * k;
+            this.streaks.frequency = this.lite ? 110 - 30 * k : 42 - 24 * k;
 
             // Direção dos riscos = contrário do carro, porque na tela é o
             // mundo que corre pra trás. Recalcula a cada ~70ms; a cada frame
@@ -451,8 +348,12 @@ export default class TurboFX {
         if (this.flashAlpha <= 0) this.flash.fillColor = 0xffffff;
 
         // --- Brilho do container HTML (ver style.css) ---
-        if (this.container) {
-            this.container.style.setProperty('--turbo', k.toFixed(3));
+        if (this.container && !this.lite) {
+            const value = (Math.round(k * 20) / 20).toFixed(2);
+            if (value !== this._cssTurbo) {
+                this.container.style.setProperty('--turbo', value);
+                this._cssTurbo = value;
+            }
         }
     }
 

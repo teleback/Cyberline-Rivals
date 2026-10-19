@@ -62,10 +62,16 @@ Comece o gesto no círculo do canto inferior esquerdo. Os ajustes de aceleraçã
 pneus, frenagem, resposta direcional e ré ficam em `js/objects/CarHandling.js`.
 
 As colisões com meio-fio conservam o movimento ao longo da parede e aplicam
-um recuo pequeno. Os pontos do mapa formam superfícies contínuas, e os
-contatos são verificados ao longo do deslocamento para impedir que um boost
+um recuo mais forte nas batidas de frente, sustentado por um instante para
+o carro se afastar mesmo com o acelerador pressionado. Freio e ré continuam
+disponíveis durante a recuperação. Os pontos do mapa formam superfícies
+contínuas, e os contatos são verificados ao longo do deslocamento para impedir que um boost
 atravesse paredes finas. Barris desviam o carro nas batidas frontais e têm
 uma animação curta de impacto, sem reduzir repetidamente toda a velocidade.
+
+A linha de largada/chegada bloqueia a passagem no sentido contrário, tanto
+de ré quanto com o carro virado. A passagem no sentido da corrida fica livre
+para largar e completar as voltas.
 
 ## Tijolinhos e resultado da corrida
 
@@ -77,3 +83,27 @@ uma animação curta de impacto, sem reduzir repetidamente toda a velocidade.
 Os tijolinhos da pista reaparecem por volta, mantendo um único dono por tijolinho e por volta. As coletas são confirmadas pelo coordenador da partida e sincronizadas entre os dois jogadores, inclusive em caso de mensagens repetidas.
 
 O resultado mostra os dois carros animados, o primeiro e o segundo colocado, o tempo de cada piloto e os tijolinhos ganhos com a coleta e as recompensas. O menor tempo decide o vencedor; não há multiplicador de pontuação por tempo. Os valores das recompensas ficam em `js/objects/RaceRewards.js`.
+
+O campeão fica em destaque dourado, com o detalhamento dos ganhos e o total de tijolinhos em cada cartão. Ao terminar a contagem, aparece **VOLTAR AO MENU**, disponível por toque, clique, Enter, Espaço, Esc ou uma nova confirmação no controle. A saída libera a presença na sala e permite iniciar outra partida sem recarregar a página.
+
+Há **10 salas**, com limite de **2 pilotos por sala** e ocupação ao vivo.
+Salas completas mostram **PARTIDA EM ANDAMENTO** e bloqueiam outra entrada.
+A lista usa páginas para manter os cartões legíveis no celular; toque nas
+setas ou deslize para ver as outras salas. Teclado e controle também navegam
+entre as páginas. A entrada aguarda a verificação da ocupação.
+
+No celular, o turbo usa um perfil visual mais leve, com menos partículas e rastros, sem os filtros de tela nem a sombra animada do canvas. O impulso e o consumo do turbo continuam com as mesmas regras.
+
+
+## Desempenho e iluminação
+
+O cenário reaproveita os blocos visíveis até a câmera mudar de área e pula
+as partes vazias das camadas. O cache de luzes só é atualizado ao mudar de
+bloco, mantendo uma margem para o movimento e o zoom. Luzes de carros fora
+da tela ficam suspensas até seus faróis se aproximarem da câmera.
+
+A pista tem menos escurecimento e halos mais suaves. O turbo mantém uma
+mudança discreta de cor no computador, com a pista nítida; no celular,
+fumaça e marcas de pneu também usam limites menores e objetos reutilizados.
+
+Verificação automatizada: `node --test tests/*.test.mjs`.

@@ -31,8 +31,25 @@ export default class RaceHUD {
     }
 
     panel(x, y, width, height, accent = 0x29cfff) {
-        return this.register(this.scene.add.rectangle(x, y, width, height, 0x071022, 0.68)
-            .setOrigin(0).setStrokeStyle(1, accent, 0.3), 2000);
+        return this.register(this.scene.add.rectangle(x, y, width, height, 0x060d1c, 0.94)
+            .setOrigin(0).setStrokeStyle(1, accent, 0.38), 2000);
+    }
+
+    detail(x, y, width, height, color, alpha = 1, depth = 2001) {
+        return this.register(this.scene.add.rectangle(x, y, width, height, color)
+            .setOrigin(0).setAlpha(alpha), depth);
+    }
+
+    trim(x, y, width, height, accent) {
+        // Todos os acabamentos ficam dentro das medidas originais do painel.
+        this.detail(x + 1, y + 1, width - 2, 1, 0xd9f4ff, 0.1);
+        this.detail(x + 1, y + 1, 18, 1, accent, 0.95);
+        this.detail(x + 1, y + 1, 1, 7, accent, 0.8);
+        this.detail(x + width - 10, y + 1, 9, 1, accent, 0.6);
+        this.detail(x + width - 2, y + 1, 1, 7, accent, 0.6);
+        this.detail(x + 1, y + height - 2, 8, 1, accent, 0.45);
+        this.detail(x + width - 19, y + height - 2, 18, 1, accent, 0.8);
+        this.detail(x + width - 2, y + height - 8, 1, 7, accent, 0.8);
     }
 
     build() {
@@ -42,8 +59,14 @@ export default class RaceHUD {
         const x = 12;
         // One compact panel replaces the separate stats and turbo cards.
         this.panel(x, 12, 148, 144);
+        this.detail(x + 2, 14, 144, 24, 0x311631, 0.8);
+        this.detail(x + 10, 38, 128, 1, PINK, 0.23);
+        this.detail(x + 8, 43, 132, 28, 0x0e1a2e, 0.9);
+        this.detail(x + 10, 72, 128, 1, 0x6198b6, 0.18);
+        this.detail(x + 10, 106, 128, 1, 0x6198b6, 0.18);
+        this.trim(x, 12, 148, 144, PINK);
         this.register(s.add.rectangle(x, 12, 2, 144, PINK).setOrigin(0), 2001);
-        s.lapLabel = this.text(x + 10, 22, `VOLTA 1 / ${s.totalLaps}`, 10, '#ff88e5');
+        s.lapLabel = this.text(x + 10, 22, `VOLTA 1 / ${s.totalLaps}`, 10, '#ffd2f2');
         s.speedLabel = this.text(x + 10, 44, '000', 20);
         this.text(x + 80, 57, 'KM/H', 7, '#8faec9');
         s.checkpointLabel = this.text(x + 10, 77, `CHECKPOINT 0/${s.checkpointCount}`, 7,
@@ -53,18 +76,23 @@ export default class RaceHUD {
                 .setOrigin(0).setStrokeStyle(1, 0x355579, 0.8)));
 
         this.text(x + 10, 114, 'TURBO', 7, '#a9dcff');
-        this.turboPercent = this.text(x + 138, 114, '100%', 6, '#f0abff').setOrigin(1, 0);
+        this.turboPercent = this.text(x + 138, 114, '100%', 6, '#93edff').setOrigin(1, 0);
         s.barX = x + 10; s.barY = 128; s.barW = 128; s.barH = 4;
         this.register(s.add.rectangle(s.barX, s.barY, s.barW, s.barH, 0x17243b).setOrigin(0), 2001);
         s.turboBarFill = this.register(s.add.rectangle(s.barX, s.barY, s.barW, s.barH, 0x29cfff).setOrigin(0), 2002);
         s.turboBarGlow = this.register(s.add.rectangle(s.barX, s.barY, s.barW, 1, PINK)
             .setOrigin(0).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.15), 2003);
+        for (let tick = 8; tick < s.barW; tick += 8) {
+            this.detail(s.barX + tick, s.barY, 1, s.barH, 0x060d1c, 0.7, 2003);
+        }
         this.turboScan = this.register(s.add.rectangle(s.barX, s.barY - 1, 4, 6, 0xd8f7ff)
             .setOrigin(0).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0), 2003);
         s.turboLabel = this.text(x + 10, 141, this.isTouch ? 'PRONTO' : 'PRONTO / SHIFT', 6, '#88e2ff');
 
         // Show pickups and earned race rewards in the same currency counter.
         this.panel(x, 164, 148, 32, 0xffc86c);
+        this.detail(x + 1, 165, 28, 30, 0x49311d, 0.28);
+        this.trim(x, 164, 148, 32, 0xffc86c);
         this.brickIcon = this.register(s.add.image(x + 17, 180, 'tijolinho').setDisplaySize(22, 22));
         this.text(x + 34, 170, 'TIJOLINHOS', 5, '#e9ba77');
         this.brickCount = this.earnedBricks();
@@ -91,10 +119,17 @@ export default class RaceHUD {
         // Keep the timer above the compact minimap.
         const rightX = width - 140;
         this.rightPanel = this.panel(rightX, 12, 128, 148);
+        this.detail(rightX + 2, 14, 124, 15, 0x102b40, 0.9);
+        this.detail(rightX + 6, 62, 116, 20, 0x020813, 0.9);
+        this.detail(rightX + 6, 62, 116, 1, 0x6dcfff, 0.16);
+        this.detail(rightX + 6, 81, 116, 1, 0x6dcfff, 0.16);
+        this.trim(rightX, 12, 128, 148, 0x5adfff);
         s.raceTimerTitle = this.text(rightX + 8, 68, 'TIME', 5, '#8db9d7');
-        s.raceTimerLabel = this.text(rightX + 120, 68, '00:00.00', 9).setOrigin(1, 0);
-        this.rankingTitle = this.text(rightX + 8, 20, 'POSIÇÕES', 6, '#98bfdc');
+        s.raceTimerLabel = this.text(rightX + 120, 68, '00:00.00', 9, '#bcf3ff').setOrigin(1, 0);
+        this.rankingTitle = this.text(rightX + 8, 20, 'POSIÇÕES', 6, '#b7e6f5');
         this.rows = Array.from({ length: 2 }, (_, index) => ({
+            background: this.detail(rightX + 5, 30 + index * 14, 118, 12, index ? BLUE : PINK, 0.12),
+            accent: this.detail(rightX + 5, 32 + index * 14, 1, 8, index ? BLUE : PINK, 0.8),
             dot: this.register(s.add.circle(rightX + 10, 36 + index * 14, 3, index ? BLUE : PINK)),
             text: this.text(rightX + 22, 32 + index * 14, index ? '2º AGUARDANDO' : '1º VOCÊ', 7),
         }));
@@ -110,8 +145,16 @@ export default class RaceHUD {
         s.miniWorldMinY = 760; s.miniWorldMaxY = 3648;
         s.miniTrackScale = Math.min((s.miniW - 10) / 460, (s.miniH - 10) / 250);
         s.miniMapBackground = this.rightPanel;
+        this.detail(s.miniX + 1, s.miniY + 1, s.miniW - 2, s.miniH - 1, 0x020914, 0.8);
+        for (let offset = 12; offset < s.miniW; offset += 12) {
+            this.detail(s.miniX + offset, s.miniY + 2, 1, s.miniH - 3, 0x5bb2cb, 0.055);
+        }
+        for (let offset = 12; offset < s.miniH; offset += 12) {
+            this.detail(s.miniX + 2, s.miniY + offset, s.miniW - 4, 1, 0x5bb2cb, 0.055);
+        }
         s.miniMapFrame = this.register(s.add.rectangle(s.miniX, s.miniY, s.miniW, s.miniH, 0, 0)
-            .setOrigin(0).setVisible(false), 7003);
+            .setOrigin(0).setStrokeStyle(1, 0x4ca9c3, 0.22), 7003);
+        this.trim(s.miniX, s.miniY, s.miniW, s.miniH, 0x4ca9c3);
         s.miniMapImage = this.register(s.add.image(s.miniX + s.miniW / 2, s.miniY + s.miniH / 2 + 2, 'minimapTrack')
             .setDisplaySize(460 * s.miniTrackScale, 250 * s.miniTrackScale), 7001);
         s.miniMapLabel = this.text(s.miniX + 6, s.miniY + 5, 'CIRCUITO', 4, '#90b7d1')
@@ -119,7 +162,7 @@ export default class RaceHUD {
         s.miniMapPlayer = this.register(s.add.circle(0, 0, 3, PINK)
             .setStrokeStyle(1, 0xffffff), 7006);
         s.miniMapRival = this.register(s.add.circle(0, 0, 3, BLUE)
-            .setStrokeStyle(1.2, 0xb7d4ff).setVisible(false), 7005);
+            .setStrokeStyle(1.2, 0xa9deff).setVisible(false), 7005);
         this.updateMinimap();
     }
 
@@ -132,7 +175,8 @@ export default class RaceHUD {
             left + Math.max(0, Math.min(1, (car.x - s.miniWorldMinX) / (s.miniWorldMaxX - s.miniWorldMinX))) * width,
             top + Math.max(0, Math.min(1, (car.y - s.miniWorldMinY) / (s.miniWorldMaxY - s.miniWorldMinY))) * height);
         place(s.miniMapPlayer, s.car);
-        const rival = Object.values(s.remotePlayers).find(remote => remote.sprite && (remote.online || remote.finished));
+        s.miniMapPlayer.setVisible(!s.raceFinished);
+        const rival = Object.values(s.remotePlayers).find(remote => remote.sprite && remote.online && !remote.finished);
         s.miniMapRival.setVisible(Boolean(rival));
         if (rival) place(s.miniMapRival, rival.sprite);
     }
@@ -155,10 +199,15 @@ export default class RaceHUD {
         }
         this.leaderId = leader.id;
         this.rankingTitle.setText(drivers.length < 2 ? 'POSIÇÕES' : leader.local ? 'VOCÊ NA FRENTE' : 'RIVAL NA FRENTE');
+        this.rows.forEach(row => row.background.setAlpha(0.045));
         ranked.forEach((driver, index) => {
-            this.rows[index].dot.fillColor = driver.local ? PINK : BLUE;
+            const color = driver.local ? PINK : BLUE;
+            this.rows[index].background.fillColor = color;
+            this.rows[index].background.setAlpha(index === 0 ? 0.17 : 0.09);
+            this.rows[index].accent.fillColor = color;
+            this.rows[index].dot.fillColor = color;
             this.rows[index].text.setText(`${index + 1}º ${driver.local ? 'VOCÊ' : 'RIVAL'}`)
-                .setColor(driver.local ? '#ff88e5' : '#a3c0ff');
+                .setColor(driver.local ? '#ffb4ee' : '#b5d9ff');
         });
         if (drivers.length < 2) this.rows[1].text.setText('2º AGUARDANDO').setColor('#627f9c');
     }
@@ -218,7 +267,8 @@ export default class RaceHUD {
         s.turboBarFill.fillColor = color;
         s.turboLabel.setText(car.isOverheated ? 'RESFRIANDO' : car.isTurboActive ? 'BOOST ATIVO' : ready ? (this.isTouch ? 'PRONTO' : 'PRONTO / SHIFT') : 'RECARREGANDO')
             .setColor(car.isOverheated || car.isTurboActive ? '#ff88e5' : '#88cfff');
-        this.turboPercent.setText(`${Math.round(fuel * 100)}%`);
+        this.turboPercent.setText(`${Math.round(fuel * 100)}%`)
+            .setColor(car.isOverheated || car.isTurboActive ? '#ffb4ee' : ready ? '#93edff' : '#7793b0');
         s.speedLabel.setText(String(car.speedKmh).padStart(3, '0')).setColor(car.isTurboActive ? '#ffb9ec' : '#eaf2ff');
         this.updateRanking(time);
     }

@@ -1,16 +1,17 @@
 import { loadMusic } from '../fx/Music.js';
 import { loadCarSkins, prepareCarSkins } from '../objects/CarSkins.js';
+import RaceLoadingScreen from '../fx/RaceLoadingScreen.js';
 
 class Preloader extends Phaser.Scene {
     constructor() { super('Preloader'); }
 
+    init(data = {}) {
+        this.raceData = data;
+    }
+
     preload() {
+        this.loadingScreen = new RaceLoadingScreen(this, this.raceData);
         loadMusic(this, 'race');
-        const { width, height } = this.scale;
-        this.cameras.main.setBackgroundColor('#111319');
-        this.add.rectangle(width/2, height/2, 320, 24).setStrokeStyle(1, 0xffffff);
-        const bar = this.add.rectangle(width/2-158, height/2, 4, 18, 0x00e5ff).setOrigin(0,0.5);
-        this.load.on('progress', p => bar.width = 4 + 312*p);
 
         const v = `?v=${Date.now()}`;
         // Tilesets EXATAMENTE iguais aos do pista.json novo.
@@ -42,7 +43,7 @@ class Preloader extends Phaser.Scene {
 
     create(data = {}) {
         prepareCarSkins(this);
-        this.scene.start('Race', data);
+        this.loadingScreen.complete(() => this.scene.start('Race', data));
     }
 }
 export default Preloader;

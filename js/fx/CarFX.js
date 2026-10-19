@@ -3,6 +3,7 @@ export default class CarFX {
     constructor(scene, car) {
         this.scene = scene;
         this.car = car;
+        this.lite = !!scene.fx?.lite;
         this.marks = [];
         this.markCursor = 0;
         this.markDistance = 0;
@@ -37,9 +38,9 @@ export default class CarFX {
             scale: { start: 0.85, end: 1.45 },
             alpha: { start: 0.52, end: 0 },
             tint: [0xb9c3cf, 0x6e7885, 0xffffff],
-            frequency: 24,
+            frequency: this.lite ? 48 : 24,
             quantity: 1,
-            maxAliveParticles: 55,
+            maxAliveParticles: this.lite ? 24 : 55,
             emitting: false
         }).setDepth(985);
 
@@ -50,9 +51,9 @@ export default class CarFX {
             scale: { start: 0.46, end: 0 },
             alpha: { start: 0.82, end: 0 },
             tint: [0xc49b72, 0xf0c28a, 0x8b6a52],
-            frequency: 34,
-            quantity: 2,
-            maxAliveParticles: 24,
+            frequency: this.lite ? 56 : 34,
+            quantity: this.lite ? 1 : 2,
+            maxAliveParticles: this.lite ? 12 : 24,
             emitting: false
         }).setDepth(984);
 
@@ -60,12 +61,12 @@ export default class CarFX {
             lifespan: { min: 130, max: 300 }, speed: { min: 70, max: 210 },
             scale: { start: 0.18, end: 0 }, alpha: { start: 0.85, end: 0 },
             tint: [0xffd083, 0xff9b45, 0xffffff], blendMode: 'ADD',
-            emitting: false, maxAliveParticles: 20,
+            emitting: false, maxAliveParticles: this.lite ? 10 : 20,
         }).setDepth(1002);
         this.impactFlash = this.scene.add.image(this.car.x, this.car.y, this.car.texture.key)
             .setDepth(1001).setBlendMode('ADD').setTint(0xffd3a1).setAlpha(0).setVisible(false);
 
-        for (let i = 0; i < 64; i++) {
+        for (let i = 0; i < (this.lite ? 32 : 64); i++) {
             const mark = this.scene.add.image(0, 0, 'fx-tire-mark')
                 .setVisible(false)
                 .setAlpha(0.88)
@@ -100,15 +101,10 @@ export default class CarFX {
             else if (mark.visible) mark.setAlpha(0.72 * Math.min(1, (mark.expiresAt - now) / 1400));
         }
 
-        const forward = this.scene.physics.velocityFromRotation(
-            this.car.rotation - Math.PI / 2,
-            1
-        );
-        const rear = forward.clone().scale(-1);
-        const side = new Phaser.Math.Vector2(-forward.y, forward.x);
-        const rearX = this.car.x + rear.x * 34;
-        const rearY = this.car.y + rear.y * 34;
-        const rearAngle = Phaser.Math.RadToDeg(Math.atan2(rear.y, rear.x));
+        const sin = Math.sin(this.car.rotation), cos = Math.cos(this.car.rotation);
+        const rearX = this.car.x - sin * 34;
+        const rearY = this.car.y + cos * 34;
+        const rearAngle = Phaser.Math.RadToDeg(this.car.rotation + Math.PI / 2);
 
         if (marking) {
             this.smoke.setPosition(rearX, rearY);
@@ -118,7 +114,7 @@ export default class CarFX {
             this.dust.setEmitterAngle(rearAngle - 38, rearAngle + 38);
         }
         this.smoke.emitting = marking;
-        this.smoke.frequency = sliding || braking ? 16 : 24;
+        this.smoke.frequency = (sliding || braking ? 16 : 24) * (this.lite ? 2 : 1);
         this.dust.emitting = enabled && now < this.launchUntil;
 
         if (!marking) {
@@ -138,16 +134,15 @@ export default class CarFX {
         this.lastMarkX = rearX;
         this.lastMarkY = rearY;
 
-        if (this.markDistance < 12) return;
+        if (this.markDistance < (this.lite ? 18 : 12)) return;
         this.markDistance = 0;
 
         const markLength = sliding || braking ? 20 : 15;
-        const wheelLong = 0;
         const wheelLat = 22;
-        const leftX = rearX + rear.x * wheelLong + side.x * wheelLat;
-        const leftY = rearY + rear.y * wheelLong + side.y * wheelLat;
-        const rightX = rearX + rear.x * wheelLong - side.x * wheelLat;
-        const rightY = rearY + rear.y * wheelLong - side.y * wheelLat;
+        const leftX = rearX + cos * wheelLat;
+        const leftY = rearY + sin * wheelLat;
+        const rightX = rearX - cos * wheelLat;
+        const rightY = rearY - sin * wheelLat;
         this.placeMark(leftX, leftY, markLength);
         this.placeMark(rightX, rightY, markLength);
     }

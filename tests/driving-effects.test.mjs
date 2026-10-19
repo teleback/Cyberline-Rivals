@@ -3,7 +3,11 @@ import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import CarFX from '../js/fx/CarFX.js';
 import CarLighting from '../js/fx/CarLighting.js';
-import TurboFX from '../js/fx/TurboFX.js';
+
+let touchDevice = false;
+globalThis.window = { location: { search: '' }, addEventListener() {},
+    matchMedia: () => ({ matches: touchDevice }) };
+const { default: TurboFX } = await import('../js/fx/TurboFX.js');
 
 class Vector {
     constructor(x, y) { this.x = x; this.y = y; }
@@ -29,6 +33,8 @@ class Image {
     setFlip() { return this; }
     setTint() { return this; }
     setEmitterAngle() { return this; }
+    setScrollFactor() { return this; }
+    setParticleLifespan() { return this; }
     destroy() { this.destroyed = true; }
     explode(count) { this.lastExplosion = count; }
 }
@@ -69,6 +75,42 @@ test('camera anticipates actual movement with a bounded offset and consistent sm
     assert.ok(Math.abs(slow.cam.x) < 0.03);
 });
 
+test('mobile turbo avoids GPU filters, DOM repaints and trail allocations across repeated activations', () => {
+    touchDevice = true;
+    let writes = 0;
+    globalThis.document = { getElementById: () => ({ style: { setProperty() { writes++; } } }) };
+    Phaser.Geom = { Rectangle: class {} };
+    const { scene, car, created } = setup();
+    Object.assign(car, { on() {}, setTint() {}, clearTint() {}, angle: 0, turboIntensity: 0.8,
+        enableFilters() { throw new Error('No mobile car glow filter'); } });
+    Object.assign(scene, {
+        scale: { width: 800, height: 450 }, renderer: { gl: true },
+        cameras: { main: { zoom: 0.65, setFollowOffset() {}, shake() {},
+            get filters() { throw new Error('No mobile camera filters'); } } },
+        tweens: { add() { throw new Error('Turbo trails must reuse their fixed pool'); } },
+    });
+    scene.add.rectangle = () => { const image = new Image(); created.push(image); return image; };
+    const fx = new TurboFX(scene, car);
+    fx.streaks.ops = { rotate: { onChange() {} } };
+    const count = created.length;
+    assert.equal(fx.filters, null);
+    assert.equal(fx.carGlow, null);
+    assert.ok(fx.flame.config.maxAliveParticles + fx.sparks.config.maxAliveParticles
+        + fx.streaks.config.maxAliveParticles <= 34);
+    for (let time = 0; time < 8000; time += 16) {
+        if (time % 800 === 0) fx.onStart();
+        fx.update(time, 16);
+    }
+    assert.equal(created.length, count);
+    assert.ok(fx.ghosts.some(ghost => ghost.visible));
+    assert.equal(writes, 0);
+    car.turboIntensity = 0;
+    fx.update(8500, 16);
+    assert.ok(fx.ghosts.every(ghost => !ghost.visible));
+    fx.destroy();
+    touchDevice = false;
+});
+
 test('pooled tail lights brighten on braking locally and from multiplayer state', () => {
     const { car, scene, created } = setup();
     const lights = new CarLighting(scene, car, () => 'glow', 0x00ffff);
@@ -87,6 +129,66 @@ test('pooled tail lights brighten on braking locally and from multiplayer state'
     assert.ok(lights.worldObjects.every(object => !object.visible));
     lights.destroy();
     assert.ok(lights.worldObjects.every(object => object.destroyed));
+});
+
+test('distant car lights sleep and reappear before their beams enter the camera', () => {
+    const { car, scene, created } = setup();
+    const lights = new CarLighting(scene, car, () => 'glow', 0x00ffff);
+    const view = { x: 1000, y: 1000, right: 1800, bottom: 1450 };
+    const count = created.length;
+    lights.update(view);
+    assert.ok(lights.worldObjects.every(object => !object.visible));
+    car.x = 850; car.y = 1200;
+    lights.update(view);
+    assert.ok(lights.worldObjects.every(object => object.visible), 'Beams can enter before the car does');
+    assert.equal(created.length, count);
+});
+
+test('desktop turbo uses one restrained color pass and reuses its matrix between intensity changes', () => {
+    touchDevice = false;
+    globalThis.document = { getElementById: () => ({ style: { setProperty() {} } }) };
+    Phaser.Geom = { Rectangle: class {} };
+    const { car, scene } = setup();
+    let filters = 0, matrixChanges = 0;
+    const color = { active: false, colorMatrix: {
+        saturate(amount) { assert.ok(amount <= 0.18); matrixChanges++; },
+        brightness(amount) { assert.ok(amount <= 1.04); matrixChanges++; },
+    } };
+    Object.assign(car, { on() {}, setTint() {}, clearTint() {}, angle: 0, turboIntensity: 0.8 });
+    Object.assign(scene, { scale: { width: 800, height: 450 }, renderer: { gl: true },
+        cameras: { main: { zoom: 0.65, setFollowOffset() {}, shake() {}, filters: { internal: {
+            addColorMatrix() { filters++; return color; },
+            addBlur() { throw new Error('No full-screen blur'); },
+            addBarrel() { throw new Error('No camera distortion'); },
+            addVignette() { throw new Error('No darkening of upcoming curves'); },
+        } } } } });
+    scene.add.rectangle = () => new Image();
+    const fx = new TurboFX(scene, car);
+    fx.streaks.ops = { rotate: { onChange() {} } };
+    for (let frame = 0; frame < 120; frame++) fx.update(frame * 16, 16);
+    assert.equal(filters, 1);
+    assert.equal(matrixChanges, 2);
+    assert.equal(color.active, true);
+    car.turboIntensity = 0;
+    fx.update(2000, 16);
+    assert.equal(color.active, false);
+    fx.destroy();
+});
+
+test('mobile tire effects keep braking feedback with smaller fixed particle and mark pools', () => {
+    const { car, scene, created } = setup();
+    scene.fx = { lite: true };
+    car.isBraking = true;
+    const fx = new CarFX(scene, car), count = created.length;
+    assert.equal(fx.marks.length, 32);
+    assert.ok(fx.smoke.config.maxAliveParticles + fx.dust.config.maxAliveParticles
+        + fx.impact.config.maxAliveParticles <= 46);
+    for (let frame = 0; frame < 120; frame++) {
+        car.x += 20; scene.time.now += 16; fx.update(16);
+    }
+    assert.equal(fx.smoke.emitting, true);
+    assert.ok(fx.marks.some(mark => mark.visible));
+    assert.equal(created.length, count);
 });
 
 test('tire effects use shared control state, remain pooled, and stop when controls are locked', () => {

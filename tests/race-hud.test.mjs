@@ -100,6 +100,18 @@ test('overtaking changes the live leaderboard, while laps and finish times take 
     assert.equal(hud.rows[0].text.value, '1º RIVAL');
 });
 
+test('finished drivers leave the minimap while the rival continues racing', () => {
+    const { hud, scene } = setupHUD();
+    scene.remotePlayers.remote = { sprite: { x: 500, y: 1300 }, online: true, finished: false };
+    scene.raceFinished = true;
+    hud.updateMinimap();
+    assert.equal(scene.miniMapPlayer.visible, false);
+    assert.equal(scene.miniMapRival.visible, true);
+    scene.remotePlayers.remote.finished = true;
+    hud.updateMinimap();
+    assert.equal(scene.miniMapRival.visible, false);
+});
+
 test('route follows the mapped track; bends and adjacent track sections have distinct progress', () => {
     const map = JSON.parse(readFileSync(new URL('../assets/images/tilemaps/pista.json', import.meta.url)));
     const layer = map.layers.find(layer => layer.name === 'Pista');

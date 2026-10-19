@@ -15,29 +15,36 @@
  *      turbina girando, e é ela que dá a informação de "está enchendo".
  *   3. Estalos pontuais: o blow-off ao soltar e o estouro do superaquecimento.
  *
- * Tudo é criado só no primeiro acionamento do turbo (o navegador exige um
- * gesto do usuário antes de deixar tocar áudio — o clique da tela inicial já
- * serviu) e o arquivo inteiro é à prova de falha: se o WebAudio não existir
+ * O buffer e os nós são preparados durante a entrada do carro, usando o
+ * contexto de áudio do jogo. Assim o primeiro turbo não precisa inicializar
+ * a síntese. Se o WebAudio não existir
  * ou der erro, o jogo segue mudo sem reclamar.
  */
 export default class TurboAudio {
-    constructor(car) {
+    constructor(car, context = null) {
         this.car = car;
         this.ctx = null;
+        this.sharedContext = context;
         this.ready = false;
         this.muted = false;
+        this.destroyed = false;
+        this.bursts = new Set();
 
-        car.on('turbo-start', () => this.onStart());
-        car.on('turbo-stop', () => this.blowOff(0.5));
-        car.on('turbo-overheat', () => this.onOverheat());
+        this.startHandler = () => this.onStart();
+        this.stopHandler = () => this.blowOff(0.5);
+        this.overheatHandler = () => this.onOverheat();
+        car.on('turbo-start', this.startHandler);
+        car.on('turbo-stop', this.stopHandler);
+        car.on('turbo-overheat', this.overheatHandler);
     }
 
     ensure() {
+        if (this.destroyed) return false;
         if (this.ready) return true;
         try {
             const AC = window.AudioContext || window.webkitAudioContext;
-            if (!AC) return false;
-            const ctx = new AC();
+            if (!this.sharedContext && !AC) return false;
+            const ctx = this.sharedContext || new AC();
             this.ctx = ctx;
 
             this.master = ctx.createGain();
@@ -45,7 +52,7 @@ export default class TurboAudio {
             this.master.connect(ctx.destination);
 
             // --- Voz 1: ar ---
-            const frames = ctx.sampleRate * 2;
+            const frames = Math.floor(ctx.sampleRate * 0.75);
             const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
             const data = buffer.getChannelData(0);
             for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
@@ -166,6 +173,14 @@ export default class TurboAudio {
             src.connect(filter);
             filter.connect(g);
             g.connect(this.master);
+            const burst = { src, filter, gain: g };
+            this.bursts.add(burst);
+            src.onended = () => {
+                src.disconnect();
+                filter.disconnect();
+                g.disconnect();
+                this.bursts.delete(burst);
+            };
             src.start(now);
             src.stop(now + seconds + 0.05);
         } catch (e) { /* som é enfeite, nunca derruba o jogo */ }
@@ -209,5 +224,30 @@ export default class TurboAudio {
     toggleMute() {
         this.muted = !this.muted;
         return this.muted;
+    }
+
+    destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        this.car.off('turbo-start', this.startHandler);
+        this.car.off('turbo-stop', this.stopHandler);
+        this.car.off('turbo-overheat', this.overheatHandler);
+        for (const burst of this.bursts) {
+            try { burst.src.stop(); } catch (_) {}
+            burst.src.disconnect();
+            burst.filter.disconnect();
+            burst.gain.disconnect();
+        }
+        this.bursts.clear();
+        for (const source of [this.noise, this.whine, this.engine]) {
+            try { source?.stop(); } catch (_) {}
+            source?.disconnect();
+        }
+        for (const node of [this.noiseFilter, this.noiseGain, this.whineFilter, this.whineGain,
+            this.engineFilter, this.engineGain, this.driftFilter, this.driftGain, this.master]) node?.disconnect();
+        if (this.ctx && !this.sharedContext) this.ctx.close()?.catch(() => {});
+        this.noiseBuffer = null;
+        this.ctx = null;
+        this.ready = false;
     }
 }
