@@ -169,7 +169,7 @@ test('switching the rival to its final grid lane discards old motion and resets 
     race.placeRemoteOnGrid(remote);
     assert.equal(remote.sprite.x, 5152);
     assert.equal(remote.sprite.y, 3572);
-    assert.equal(remote.label.y, 3490);
+    assert.equal(remote.label.y, 3496);
     assert.equal(remote.sprite.body.resets, 1);
     assert.equal(remote.stateBuffer.length, 0);
     assert.equal(remote.motionPose, undefined);

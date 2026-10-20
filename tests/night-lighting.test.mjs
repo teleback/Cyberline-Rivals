@@ -69,6 +69,23 @@ test('source positions follow flipped artwork and hidden layers emit no light', 
     assert.deepEqual(collectNightSources({ tilesets: [set] }, [layer], config), { patches: [], lights: [] });
 });
 
+test('sign light sources and emissive patches follow fitted scenery scale and position', () => {
+    const map = { tilesets: [{ name: 'test', firstgid: 10 }] };
+    const definitions = { tilesets: { test: { 0: { frame: 0,
+        regions: [{ id: 'sign', count: 4, x: 48, y: 16 }] } } },
+        regions: { sign: { color: [100, 200, 255], radius: 100 } } };
+    const layer = { x: 100, y: 200, scaleX: 0.8, scaleY: 0.5, visible: true, alpha: 1,
+        layer: { data: [[{ index: 10, x: 0, y: 0, pixelX: 64, pixelY: 128,
+            width: 64, height: 64, rotation: 0 }]] } };
+    const result = collectNightSources(map, [layer], definitions);
+    assert.equal(result.patches[0].x, 100 + 96 * 0.8);
+    assert.equal(result.patches[0].y, 200 + 160 * 0.5);
+    assert.equal(result.patches[0].scaleX, 0.8);
+    assert.equal(result.patches[0].scaleY, 0.5);
+    assert.ok(Math.abs(result.lights[0].x - (100 + 112 * 0.8)) < 1e-8);
+    assert.equal(result.lights[0].y, 200 + 144 * 0.5);
+});
+
 test('night wash covers the viewport during turbo zoom and updates both cars', () => {
     const camera = { width: 800, height: 450, zoom: 0.565,
         worldView: { x: 1000, y: 2000, right: 2400, bottom: 2800 } };

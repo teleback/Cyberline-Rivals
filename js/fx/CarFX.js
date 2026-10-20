@@ -21,6 +21,12 @@ export default class CarFX {
     }
 
     createTexture() {
+        if (!this.scene.textures.exists('fx-impact-ring')) {
+            const ring = this.scene.make.graphics({ x: 0, y: 0, add: false });
+            ring.lineStyle(2, 0xffd7a0, 0.9).strokeCircle(32, 32, 28);
+            ring.generateTexture('fx-impact-ring', 64, 64);
+            ring.destroy();
+        }
         if (this.scene.textures.exists('fx-tire-mark')) return;
 
         const graphics = this.scene.make.graphics({ x: 0, y: 0, add: false });
@@ -65,6 +71,8 @@ export default class CarFX {
         }).setDepth(1002);
         this.impactFlash = this.scene.add.image(this.car.x, this.car.y, this.car.texture.key)
             .setDepth(1001).setBlendMode('ADD').setTint(0xffd3a1).setAlpha(0).setVisible(false);
+        this.impactRing = this.scene.add.image(0, 0, 'fx-impact-ring')
+            .setDepth(1003).setBlendMode('ADD').setAlpha(0).setVisible(false);
 
         for (let i = 0; i < (this.lite ? 32 : 64); i++) {
             const mark = this.scene.add.image(0, 0, 'fx-tire-mark')
@@ -81,6 +89,8 @@ export default class CarFX {
         const speed = this.car.body.speed;
         const enabled = this.car.controlsEnabled !== false;
         const impactFade = Math.max(0, (this.impactUntil - now) / 220);
+        this.impactRing.setVisible(impactFade > 0).setScale(0.3 + (1 - impactFade) * 1.25)
+            .setAlpha(impactFade * 0.65);
         this.impactFlash.setVisible(impactFade > 0)
             .setPosition(this.car.x, this.car.y).setRotation(this.car.rotation)
             .setScale(1 + 0.035 * impactFade).setAlpha(0.36 * impactFade);
@@ -164,13 +174,16 @@ export default class CarFX {
         this.dust.destroy();
         this.impact.destroy();
         this.impactFlash.destroy();
+        this.impactRing.destroy();
         this.marks.forEach((mark) => mark.destroy());
     }
 
     crash(speed, contact) {
         this.impactUntil = this.scene.time.now + 220;
         const forward = this.scene.physics.velocityFromRotation(this.car.rotation - Math.PI / 2, 1);
-        this.impact.explode(Math.min(16, Math.round(speed / 32)),
-            contact?.x ?? this.car.x + forward.x * 44, contact?.y ?? this.car.y + forward.y * 44);
+        const x = contact?.x ?? this.car.x + forward.x * 44;
+        const y = contact?.y ?? this.car.y + forward.y * 44;
+        this.impactRing.setPosition(x, y);
+        this.impact.explode(Math.min(this.lite ? 8 : 16, Math.max(3, Math.round(speed / 32))), x, y);
     }
 }

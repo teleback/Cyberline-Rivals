@@ -8,6 +8,10 @@ export const CAR_SKINS = [
         path: 'assets/images/cars/carro-azul-escuro-neon-v2.png', neon: 0x3995ff, color: '#3995ff' },
     { id: 'green', name: 'VERDE ESCURO NEON', style: 'BUGGY URBANO', texture: 'car-green-v2', source: 'car-source-green-v2',
         path: 'assets/images/cars/carro-verde-escuro-neon-v2.png', neon: 0x39ff88, color: '#39ff88' },
+    { id: 'amber', name: 'AMBER GT', style: 'COUPÉ SINTÉTICO', texture: 'car-amber', source: 'car-amber',
+        path: 'assets/images/cars/carro-amber-gt.png', neon: 0xffb547, color: '#ffb547' },
+    { id: 'ion', name: 'ION INTERCEPTOR', style: 'INTERCEPTOR ELÉTRICO', texture: 'car-ion', source: 'car-ion',
+        path: 'assets/images/cars/carro-ion-interceptor.png', neon: 0x62efff, color: '#62efff' },
 ];
 
 export function getCarSkin(id) {

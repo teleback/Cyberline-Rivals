@@ -219,7 +219,7 @@ test('reliable brick and finish messages in the same millisecond are ordered by 
         sessionId: 'session-b', lastMessageTs: 1000, lastMessageSeq: 9,
         lastPacketAt: performance.now(), arrivalJitter: 0, stateBuffer: [],
         sprite: { texture: { key: 'car-blue-v2' }, body: {}, setTint() {}, setScale() {}, setVisible() {} },
-        label: { setText() {}, setVisible() {} },
+        label: { setIdentity() {}, setText() {}, setVisible() {} },
     });
     Object.assign(race, { totalLaps: 3, raceTimerStarted: true, networkSendInterval: 33,
         pendingClockProbes: new Map(),

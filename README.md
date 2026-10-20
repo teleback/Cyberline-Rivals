@@ -66,8 +66,28 @@ um recuo mais forte nas batidas de frente, sustentado por um instante para
 o carro se afastar mesmo com o acelerador pressionado. Freio e ré continuam
 disponíveis durante a recuperação. Os pontos do mapa formam superfícies
 contínuas, e os contatos são verificados ao longo do deslocamento para impedir que um boost
-atravesse paredes finas. Barris desviam o carro nas batidas frontais e têm
-uma animação curta de impacto, sem reduzir repetidamente toda a velocidade.
+atravesse paredes finas. Frente e traseira acompanham a rotação do carro,
+evitando que a carroceria entre no muro antes do contato. Trechos próximos
+do meio-fio se unem mesmo quando estão fora de ordem no editor.
+Barris fazem o carro recuar nas batidas frontais e têm uma animação curta
+de impacto, sem reduzir repetidamente toda a velocidade. O recuo dura um
+instante mesmo segurando o acelerador; freio, ré e direção seguem disponíveis.
+Após a batida, somente o barril atingido deixa de bloquear o carro por
+0,7 segundo. Se o carro ainda estiver sobre ele, a colisão só volta depois
+que sair, evitando travamentos. As paredes e os demais barris continuam sólidos.
+
+As batidas entre pilotos consideram o movimento relativo dos dois carros,
+inclusive durante o boost. Raspadas preservam a maior parte da velocidade;
+batidas frontais têm mais peso. A separação respeita os muros da pista e não
+reposiciona o rival recebido pela rede. Faíscas, um pulso curto e um som grave
+em volume baixo marcam o impacto, com intervalo para evitar efeitos repetidos.
+O som acompanha o volume geral e a tecla **M**.
+
+A garagem tem **6 carros**, incluindo **AMBER GT** (grafite/âmbar) e
+**ION INTERCEPTOR** (branco/ciano), com modelos próprios e a mesma física.
+Os novos sprites já vêm no tamanho final de 102 × 166 pixels e pesam cerca
+de 15 KB cada. A escolha vale também para a corrida, o rival e o resultado.
+Os nicks dos dois jogadores usam placas compactas com borda na cor do carro.
 
 A linha de largada/chegada bloqueia a passagem no sentido contrário, tanto
 de ré quanto com o carro virado. A passagem no sentido da corrida fica livre
@@ -94,6 +114,13 @@ entre as páginas. A entrada aguarda a verificação da ocupação.
 
 No celular, o turbo usa um perfil visual mais leve, com menos partículas e rastros, sem os filtros de tela nem a sombra animada do canvas. O impulso e o consumo do turbo continuam com as mesmas regras.
 
+As placas de boost têm acabamento metálico, bordas ciano/violeta e três setas
+que acendem em sequência no sentido do impulso. Ao passar por elas, uma
+onda dupla se expande pelo asfalto, com faíscas direcionais e um rastro
+elétrico curto atrás do carro. Os efeitos são reutilizados; no celular,
+o pulso usa uma onda e menos partículas e rastros. As oito placas mantêm
+as mesmas posições, dimensões e regras de aceleração.
+
 
 ## Desempenho e iluminação
 
@@ -105,5 +132,14 @@ da tela ficam suspensas até seus faróis se aproximarem da câmera.
 A pista tem menos escurecimento e halos mais suaves. O turbo mantém uma
 mudança discreta de cor no computador, com a pista nítida; no celular,
 fumaça e marcas de pneu também usam limites menores e objetos reutilizados.
+Os refletores de borda são gravados uma vez em blocos de textura de meia
+resolução; somente os blocos próximos da câmera ficam visíveis. Os impactos
+reutilizam emissores e imagens, com até 8 faíscas por batida no celular.
+
+O cenário respeita os deslocamentos definidos no Tiled. Prédios, contêineres,
+sucata, cercas, arbustos e postes foram ajustados para liberar o asfalto ao
+longo de todo o circuito. Nas ilhas estreitas, as propriedades
+`sceneryScaleX` e `sceneryScaleY` ajustam a arte uma vez no carregamento;
+os letreiros e suas luzes acompanham o tamanho e a posição da fachada.
 
 Verificação automatizada: `node --test tests/*.test.mjs`.

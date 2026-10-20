@@ -50,6 +50,7 @@ export default class StaticNightLights {
             context.save();
             context.globalAlpha = patch.alpha * 0.52;
             context.translate(patch.x - chunk.x, patch.y - chunk.y);
+            context.scale(patch.scaleX ?? 1, patch.scaleY ?? 1);
             context.rotate(patch.rotation || 0);
             context.scale(patch.flipX ? -1 : 1, patch.flipY ? -1 : 1);
             context.drawImage(frame.source.image, frame.cutX, frame.cutY, frame.cutWidth, frame.cutHeight,

@@ -7,10 +7,28 @@ Modelos criados com a ferramenta integrada `image_gen` (modo de edição, `trans
 - Rosa aerodinâmico: `assets/images/cars/carro-rosa-neon-v2.png`
 - Azul escuro blindado: `assets/images/cars/carro-azul-escuro-neon-v2.png`
 - Verde escuro buggy urbano: `assets/images/cars/carro-verde-escuro-neon-v2.png`
+- AMBER GT, cupê grafite com neon âmbar: `assets/images/cars/carro-amber-gt.png`
+- ION INTERCEPTOR, interceptor branco com neon ciano: `assets/images/cars/carro-ion-interceptor.png`
 
 Cada modelo tem carroceria, cabine, rodas e traseira próprias. As cores permanecem rosa neon, azul escuro neon e verde escuro neon. A garagem, a corrida e o multiplayer usam o mesmo modelo selecionado.
 
 `js/objects/CarSkins.js` recorta a margem transparente e cria texturas de 102 × 166 pixels no carregamento. As silhuetas são centralizadas no espaço do carro original, com no máximo 64 × 119 pixels, para manter o alinhamento com a física e os efeitos. Os tipos exibidos na garagem descrevem o visual; os carros mantêm a mesma física.
+
+AMBER GT e ION INTERCEPTOR foram criados com a ferramenta integrada `image_gen`, em modo de geração com `transparent_background: true`, uma chamada por modelo. Os PNGs foram normalizados com o mesmo recorte e escala de pixel art do jogo: frame final de 102 × 166, silhueta centralizada em (49.5, 80), transparência preservada. Cada arquivo pesa cerca de 15 KB e já é carregado diretamente como textura, dispensando leitura de pixels no navegador. Os quatro carros anteriores foram preservados.
+
+## Prompts dos dois novos carros
+
+Prefixo usado em ambas as chamadas:
+
+> Use case: stylized-concept. Asset type: production transparent top-down pixel-art racing game car sprite for Cyberline Rivals. Same visual family as existing neon cyberpunk arcade cars: strong black outlines, chunky crisp square pixel clusters, dark body shading and bright attached neon strips. Design for eventual rendering at 64x119 pixels, large simple readable shapes. ONE complete car only, strict orthographic 90-degree overhead top-down view, nose pointing UP, rear DOWN, centered in portrait canvas, full wheels and body visible. Roughly 1:1.8 body width:length ratio. Genuine transparent alpha background, generous transparent margin. No ground, cast shadow, scenery, text, logos, labels, weapons, watermark, perspective, isometric camera, 3D render, or broad external glow.
+
+Complemento para AMBER GT:
+
+> Create an original model called AMBER GT: black graphite cyberpunk retro-futuristic sports coupe, broad angular squared wedge nose, four recessed dark wheels with amber hub highlights, large central black glass windshield and dark roof, two separated amber hood rails, layered gunmetal side armor, orange neon circuit strips, wide low rear spoiler, segmented orange tail lights, two small integrated rear exhausts WITHOUT flame. Distinct from a long pointed magenta hypercar; confident compact muscle coupe silhouette, amber/gold and orange highlights on charcoal. Readable pixel art, no smooth painterly details.
+
+Complemento para ION INTERCEPTOR:
+
+> Create an original model called ION INTERCEPTOR: pearl-white and cool pale silver cyberpunk interceptor, sharply chamfered front bumper, cyan slit headlights, cyan glass cockpit with a black border, central narrow graphite roof stripe, four partially enclosed dark wheels, angular layered white side fenders, short split rear spoiler and dark rear diffuser. Crisp electric cyan trim and two small cyan rear vents WITHOUT flame. Distinct white body panels and compact faceted silhouette, visibly a new vehicle not a recolor of a pointed hypercar. Readable pixel art, no smooth painterly details.
 
 ## Prompts finais do redesign
 

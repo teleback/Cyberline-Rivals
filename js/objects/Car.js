@@ -34,6 +34,8 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         // é centrado na silhueta. Ajuste CAR_HITBOX_RADIUS se quiser o carro
         // mais "gordo" (colide antes) ou mais "magro" (folga nas paredes).
         const CAR_HITBOX_RADIUS = 24;
+        // Este círculo atende aos sensores. Muros, barris e outros carros
+        // usam também a frente e a traseira rotacionadas em TrackCollisions.
         const CAR_CENTER_X = 49.5, CAR_CENTER_Y = 80;
         this.body.setCircle(
             CAR_HITBOX_RADIUS,

@@ -86,12 +86,12 @@ function finishTransition(scene) {
     }
 }
 
-test('four skins load real assets and normalize generated frames to preserve collision geometry', () => {
+test('six skins load real assets and normalize generated frames to preserve collision geometry', () => {
     const requests = [];
     loadCarSkins({ textures: { exists: () => false }, load: { image: (...args) => requests.push(args) } });
-    assert.equal(requests.length, 4);
+    assert.equal(requests.length, 6);
     for (const [, path] of requests) assert.ok(existsSync(path), `Asset disponível: ${path}`);
-    assert.equal(new Set(CAR_SKINS.map(car => car.texture)).size, 4);
+    assert.equal(new Set(CAR_SKINS.map(car => car.texture)).size, 6);
     const manager = textures();
     prepareCarSkins({ textures: manager });
     assert.equal(manager.draws.length, 3);
@@ -114,15 +114,15 @@ test('carousel wraps both ways, queues rapid navigation and hides offscreen inpu
     assert.equal(scene.selected, 0);
     assert.equal(scene.previews.filter(item => item.sprite.interactive).length, 3);
     scene.moveSelection(-1);
-    assert.equal(scene.selected, 3);
+    assert.equal(scene.selected, 5);
     scene.moveSelection(-1);
     assert.equal(scene.pendingDirection, -1);
     finishTransition(scene);
-    assert.equal(scene.selected, 2);
+    assert.equal(scene.selected, 4);
     finishTransition(scene);
     assert.equal(scene.transitioning, false);
-    assert.equal(scene.previews[2].sprite.x, scene.centerX);
-    assert.equal(scene.previews[2].sprite.alpha, 1);
+    assert.equal(scene.previews[4].sprite.x, scene.centerX);
+    assert.equal(scene.previews[4].sprite.alpha, 1);
     assert.equal(scene.previews[0].sprite.interactive, false);
     scene.moveSelection(1); finishTransition(scene);
     scene.moveSelection(1); finishTransition(scene);
@@ -187,7 +187,7 @@ test('multiplayer updates the rival to the selected sprite while retaining its n
         setTexture(key) { this.texture.key = key; },
         setTint(tint) { this.tint = tint; },
     });
-    const remote = { sprite, label: { setText() {} }, lastMessageTs: 0,
+    const remote = { sprite, label: { setIdentity() {} }, lastMessageTs: 0,
         lastPacketAt: performance.now(), arrivalJitter: 0, stateBuffer: [], tint: 0xffffff };
     const race = Object.create(Race.prototype);
     Object.assign(race, { playerId: 'local', remotePlayers: { rival: remote },

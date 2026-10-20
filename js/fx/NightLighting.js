@@ -15,14 +15,15 @@ export function collectNightSources(map, layers, definitions) {
     }
     layers.forEach((layer, layerIndex) => {
         if (!layer.visible) return;
+        const scaleX = layer.scaleX ?? 1, scaleY = layer.scaleY ?? 1;
         for (const row of layer.layer.data) for (const tile of row) {
             if (!tile || tile.index < 0) continue;
             const source = lookup.get(tile.index);
             if (!source) continue;
-            const x = layer.x + tile.pixelX + tile.width / 2;
-            const y = layer.y + tile.pixelY + tile.height / 2;
+            const x = layer.x + (tile.pixelX + tile.width / 2) * scaleX;
+            const y = layer.y + (tile.pixelY + tile.height / 2) * scaleY;
             patches.push({ x, y, frame: source.frame, rotation: tile.rotation,
-                flipX: tile.flipX, flipY: tile.flipY, alpha: layer.alpha });
+                flipX: tile.flipX, flipY: tile.flipY, alpha: layer.alpha, scaleX, scaleY });
             for (const region of source.regions) {
                 const key = `${layerIndex}:${region.id}`;
                 if (!groups.has(key)) groups.set(key, { id: region.id, cells: new Map() });
@@ -30,8 +31,8 @@ export function collectNightSources(map, layers, definitions) {
                 let dy = (region.y - 32) * (tile.flipY ? -1 : 1);
                 const cos = Math.cos(tile.rotation || 0), sin = Math.sin(tile.rotation || 0);
                 groups.get(key).cells.set(`${tile.x},${tile.y}`, {
-                    tileX: tile.x, tileY: tile.y, x: x + dx * cos - dy * sin,
-                    y: y + dx * sin + dy * cos, weight: region.count,
+                    tileX: tile.x, tileY: tile.y, x: x + (dx * cos - dy * sin) * scaleX,
+                    y: y + (dx * sin + dy * cos) * scaleY, weight: region.count,
                 });
             }
         }

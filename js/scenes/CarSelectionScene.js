@@ -92,7 +92,7 @@ class CarSelectionScene extends Phaser.Scene {
         this.nameLabel = text(width / 2, height * 0.755, '', compact ? 13 : 16, '#ffffff', true);
         this.counter = text(width / 2, height * 0.82, '', 10, '#a79ac4');
         this.dots = this.cars.map((car, index) => {
-            const dot = this.add.rectangle(width / 2 + (index - 1.5) * 24,
+            const dot = this.add.rectangle(width / 2 + (index - (this.cars.length - 1) / 2) * 24,
                 height * 0.86, 14, 3, car.neon, 0.35).setInteractive({ useHandCursor: true });
             // Área de toque maior que o traço visível.
             dot.setInteractive(new Phaser.Geom.Rectangle(-6, -10, 26, 23), Phaser.Geom.Rectangle.Contains);

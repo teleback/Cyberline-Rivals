@@ -1,5 +1,10 @@
 import TrackCollisions, { wallShapes } from '../objects/TrackCollisions.js';
+import PlayerCollisions from '../objects/PlayerCollisions.js';
+import PlayerNameplate from '../fx/PlayerNameplate.js';
+import ImpactAudio from '../fx/ImpactAudio.js';
+import TrackDetails from '../fx/TrackDetails.js';
 import { cacheStaticLayer } from '../objects/StaticMapCulling.js';
+import { applySceneryLayout } from '../objects/SceneryLayout.js';
 import { playMusic, stopMusic } from '../fx/Music.js';
 import Car from "../objects/Car.js";
 import { getCarSkin } from "../objects/CarSkins.js";
@@ -105,7 +110,7 @@ class Race extends Phaser.Scene {
     );
     this.mapLayers = [];
     map.layers.forEach((layerData, index) => {
-      const layer = map.createLayer(index, tilesets, 0, 0);
+      const layer = map.createLayer(index, tilesets);
       if (layer && carLayerIndex >= 0) {
         const depth =
           index < carLayerIndex
@@ -116,6 +121,7 @@ class Race extends Phaser.Scene {
         layer.setDepth(depth);
       }
       if (layer) {
+        applySceneryLayout(layer);
         cacheStaticLayer(layer);
         this.mapLayers.push(layer);
       }
@@ -178,6 +184,7 @@ class Race extends Phaser.Scene {
     // "cabeça pra cima" como o sprite vem por padrão. -90° = de frente
     // pra esquerda (sentido contrário à curva que vem depois da linha).
     this.car.setAngle(-90);
+    this.playerLabel = new PlayerNameplate(this, this.playerNick, this.carSkin, true).setVisible(false);
     this.previousCarX = this.car.x;
     this.networkStartX = startX;
     this.networkStartY = networkStartY;
@@ -196,11 +203,13 @@ class Race extends Phaser.Scene {
 
     this.cameras.main.setZoom(0.65);
     this.cameras.main.startFollow(this.car, true, 0.08, 0.08);
+    this.trackDetails = new TrackDetails(this, this.wallShapes);
 
     // Efeitos e som do turbo. Os dois leem `car.turboIntensity`; nenhum
     // dos dois sabe o que o outro faz.
     this.fx = new TurboFX(this, this.car);
     this.carFX = new CarFX(this, this.car);
+    this.impactAudio = new ImpactAudio(this);
     this.audio = new TurboAudio(this.car, this.sound?.context);
     // Prepare the sound during the entrance, before the first turbo press.
     this.time.delayedCall(100, () => this.audio.ensure());
@@ -214,6 +223,7 @@ class Race extends Phaser.Scene {
     this.createObstacles();
     this.createOilZones();
     this.trackCollisions = new TrackCollisions(this, this.wallShapes);
+    this.playerCollisions = new PlayerCollisions(this);
     this.brickCollectibles = new BrickCollectibles(this);
 
     this.buildHud();
@@ -475,21 +485,10 @@ class Race extends Phaser.Scene {
       sprite.body.setAllowGravity(false);
       // Only the network renderer moves the rival; Arcade must not integrate it.
       sprite.body.moves = false;
-      const collider = this.physics.add.collider(this.car, sprite);
-      collider.active = false;
-
-      const label = this.add
-        .text(0, 0, state.nick || "RIVAL", {
-          fontFamily: "monospace",
-          fontSize: "11px",
-          fontStyle: "bold",
-          color: "#ffffff",
-          backgroundColor: "#05060acc",
-          padding: { left: 4, right: 4, top: 2, bottom: 2 },
-        })
-        .setOrigin(0.5, 1)
-        .setDepth(1001)
-        .setVisible(true);
+      // A separação é feita pelo sweep de PlayerCollisions, depois dos
+      // limites da pista. Não há uma segunda resposta do Arcade.
+      const collider = { active: false, destroy() { this.active = false; } };
+      const label = new PlayerNameplate(this, state.nick || 'RIVAL', state.skin);
 
       remote = this.remotePlayers[state.id] = {
         id: state.id,
@@ -525,7 +524,7 @@ class Race extends Phaser.Scene {
       };
 
       if (this.uiCam) {
-        this.uiCam.ignore([sprite, label]);
+        this.uiCam.ignore([sprite, label.root]);
       }
       this.nightLighting?.addCar(sprite, state.skin);
       if (!this.raceTimerStarted) this.animateRemoteEntrance(remote);
@@ -645,13 +644,7 @@ class Race extends Phaser.Scene {
       0,
       1,
     );
-    const remoteStatus = state.turboActive
-      ? "TURBO"
-      : state.drifting
-        ? "DRIFT"
-        : `${Math.round((Number(state.speed) || 0) * 0.42)} KM/H`;
-    const labelText = `${remote.nick}  ${remoteStatus}`;
-    if (remote.label.text !== labelText) remote.label.setText(labelText);
+    remote.label.setIdentity(remote.nick, remote.skin);
     remote.sprite.setTint(state.turboActive ? 0xff5577 : remote.tint);
     if (!remote.entering) remote.sprite.setScale(1 + remote.turboIntensity * 0.045);
     this.updateLobbyStatus();
@@ -701,7 +694,7 @@ class Race extends Phaser.Scene {
       remote.sprite.rotation = angle;
       remote.sprite.body.updateFromGameObject();
 
-      remote.label.setPosition(remote.sprite.x, remote.sprite.y - 82);
+      remote.label.setPosition(remote.sprite.x, remote.sprite.y - 76);
     });
   }
 
@@ -788,7 +781,7 @@ class Race extends Phaser.Scene {
     remote.vx = 0;
     remote.vy = 0;
     remote.angularVelocity = 0;
-    remote.label?.setPosition(x, y - 82);
+    remote.label?.setPosition(x, y - 76);
   }
 
   alignStartingCars(opponent) {
@@ -978,6 +971,7 @@ class Race extends Phaser.Scene {
       this.car.emit('turbo-stop');
     }
     this.carFX?.crash(severity, contact);
+    this.impactAudio?.play(severity, contact?.kind || (contact?.shape?.obstacle ? 'barrel' : 'wall'));
     this.cameras.main.shake(130, Math.min(0.005, severity / 100000));
   }
 
@@ -1644,7 +1638,7 @@ class Race extends Phaser.Scene {
     this.car.turboIntensity = 0;
     this.car.isDrifting = false;
     this.car.isBraking = false;
-    this.hideFinishedCar(this.car);
+    this.hideFinishedCar(this.car, this.playerLabel);
     for (const remote of Object.values(this.remotePlayers)) {
       if (remote.collider) remote.collider.active = false;
     }
@@ -1783,6 +1777,8 @@ class Race extends Phaser.Scene {
     const world = [
       ...this.mapLayers,
       this.car,
+      this.playerLabel.root,
+      ...this.trackDetails.worldObjects,
       ...this.obstacles.getChildren(),
       this.oilVisuals,
       this.boostVisuals,
@@ -1793,6 +1789,7 @@ class Race extends Phaser.Scene {
       this.carFX.dust,
       this.carFX.impact,
       this.carFX.impactFlash,
+      this.carFX.impactRing,
       ...this.carFX.marks,
       ...(this.oilFX ? this.oilFX.worldObjects : []),
       ...this.nightLighting.worldObjects,
@@ -1831,6 +1828,8 @@ class Race extends Phaser.Scene {
       this.car.isOnOil =
         !!this.oilSensors && this.physics.overlap(this.car, this.oilSensors);
       this.car.update(time, delta);
+      this.playerLabel?.setPosition(this.car.x, this.car.y - 76)
+        .setVisible(this.localCarReady && !this.raceFinished && this.car.visible);
       this.sortObstacleDepth();
       this.publishNetworkState();
     }
@@ -1856,6 +1855,7 @@ class Race extends Phaser.Scene {
     this.updateRaceTimerHud();
     this.updateMinimap();
     if (this.nightLighting) this.nightLighting.update();
+    this.trackDetails?.update();
   }
 }
 export default Race;

@@ -230,3 +230,22 @@ test('collision recovery allows braking into reverse and accelerating away from 
     car.update(500, 16);
     assert.ok(car.body.velocity.x > before, 'normal throttle resumes when recovery ends');
 });
+
+test('holding throttle after hitting a barrel preserves visible recoil at 30, 60 and 120 FPS', () => {
+    const barrel = { type: 'circle', x: 0, y: 0, radius: 20, obstacle: {} };
+    for (const fps of [30, 60, 120]) {
+        const car = setup(390), seconds = 1 / fps;
+        const hit = resolveTravel(new CollisionIndex([barrel]), { x: -80, y: 0 },
+            { x: -30, y: 0 }, car.body.velocity, 24);
+        car.setVelocity(hit.vx, hit.vy);
+        car.contact = { ...hit.normal, until: 260 };
+        car.cursors.up.isDown = true;
+        let x = hit.x;
+        for (let frame = 1; frame <= Math.floor(fps * 0.24); frame++) {
+            car.update(frame * 1000 / fps, seconds * 1000);
+            x += car.body.velocity.x * seconds;
+            assert.ok(car.body.velocity.x < 0);
+        }
+        assert.ok(x < hit.x - 20, `${fps} FPS: a held accelerator cannot cancel the recoil`);
+    }
+});

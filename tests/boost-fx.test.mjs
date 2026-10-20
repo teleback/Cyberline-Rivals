@@ -32,7 +32,7 @@ class Image {
     explode(count, x, y) { this.lastExplosion = { count, x, y }; return this; }
 }
 
-function scene() {
+function scene(lite = false) {
     const race = new Race();
     race.created = [];
     const add = (x, y, texture) => { const image = new Image(x, y, texture); race.created.push(image); return image; };
@@ -48,6 +48,7 @@ function scene() {
     race.map = { tileWidth: 64, tileHeight: 64 };
     race.boostLayer = new Image();
     race.car = new Image(0, 0, 'carro');
+    race.fx = { lite };
     race.boosts = [];
     race.car.activateTrackBoost = time => race.boosts.push(time);
     race.cameras = { main: { worldView: { x: 0, y: 0, right: 8000, bottom: 5504 }, shake() {} } };
@@ -126,8 +127,8 @@ test('crossing pad edges and corners triggers once within cooldown in every orie
         race.checkBoostPlates(1100);
         assert.deepEqual(race.boosts, [1001]);
         assert.equal(boost.sensor.boostCooldownUntil, 1551);
-        assert.equal(race.boostFX.burst.lastExplosion.count, 22);
-        assert.equal(race.boostFX.sparks.lastExplosion.count, 16);
+        assert.equal(race.boostFX.burst.lastExplosion.count, 18);
+        assert.equal(race.boostFX.sparks.lastExplosion.count, 12);
         race.checkBoostPlates(1552);
         assert.deepEqual(race.boosts, [1001, 1552]);
     }
@@ -151,8 +152,9 @@ test('repeated activations reuse waves, trails and emitters without creating obj
     race.boostFX.update(20000);
     assert.ok(race.boostFX.waves.every(wave => !wave.image.visible));
     assert.ok(race.boostFX.ghosts.every(ghost => !ghost.image.visible));
-    assert.equal(race.boostFX.burst.config.maxAliveParticles, 48);
-    assert.equal(race.boostFX.sparks.config.maxAliveParticles, 40);
+    assert.equal(race.boostFX.wake.visible, false);
+    assert.equal(race.boostFX.burst.config.maxAliveParticles, 32);
+    assert.equal(race.boostFX.sparks.config.maxAliveParticles, 28);
 });
 
 test('pad illumination is culled outside the world camera', () => {
@@ -163,5 +165,52 @@ test('pad illumination is culled outside the world camera', () => {
         assert.equal(pad.aura.visible, false);
         assert.equal(pad.flash.visible, false);
         assert.equal(pad.scan.visible, false);
+        assert.ok(pad.arrows.every(arrow => !arrow.visible));
     }
+});
+
+test('the energy wave has a delayed second pulse and the electric wake follows the car without changing it', () => {
+    const race = scene(), fx = race.boostFX, boost = race.boostData[0];
+    race.car.setPosition(boost.x, boost.y).setRotation(-Math.PI / 2);
+    race.activateBoostPlate(boost, 1000);
+    fx.update(1016);
+    assert.equal(fx.waves.filter(wave => wave.image.visible).length, 1);
+    fx.update(1100);
+    assert.equal(fx.waves.filter(wave => wave.image.visible).length, 2);
+    assert.ok(fx.ground.depth < 1000, 'waves and trails remain beneath the car');
+    race.car.setPosition(boost.x - 100, boost.y + 20).setRotation(Math.PI);
+    fx.update(1150);
+    assert.equal(fx.wake.visible, true);
+    assert.equal(fx.wake.rotation, Math.PI);
+    assert.ok(Math.abs(fx.wake.x - race.car.x) < 1e-8);
+    assert.equal(fx.wake.y, race.car.y - 32);
+    assert.equal(race.car.scaleX, 1);
+    assert.equal(race.car.scaleY, 1);
+    race.car.setVisible(false);
+    fx.update(1160);
+    assert.equal(fx.wake.visible, false, 'a finished or hidden car has no electric wake');
+});
+
+test('mobile boost retains arrows, sparks and a wake with smaller fixed particle and trail pools', () => {
+    const race = scene(true), fx = race.boostFX;
+    assert.equal(fx.lite, true);
+    assert.equal(fx.ghosts.length, 4);
+    assert.equal(fx.waves.length, 2);
+    assert.ok(fx.burst.config.maxAliveParticles + fx.sparks.config.maxAliveParticles <= 30);
+    const created = race.created.length;
+    for (let activation = 0; activation < 20; activation++) {
+        const time = 1000 + activation * 600;
+        const boost = race.boostData[activation % race.boostData.length];
+        race.car.setPosition(boost.x, boost.y);
+        race.activateBoostPlate(boost, time);
+        fx.update(time + 16);
+        assert.equal(fx.wake.visible, true);
+        assert.ok(fx.pads[boost.sensor.boostIndex].arrows.every(arrow => arrow.visible));
+        assert.equal(fx.burst.lastExplosion.count, 10);
+        assert.equal(fx.sparks.lastExplosion.count, 8);
+        assert.equal(race.created.length, created);
+    }
+    fx.update(20000);
+    assert.equal(fx.wake.visible, false);
+    assert.ok(fx.ghosts.every(ghost => !ghost.image.visible));
 });

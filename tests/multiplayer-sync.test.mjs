@@ -30,7 +30,7 @@ function image(x, y, key) {
     return sprite;
 }
 function label() {
-    return { setText(text) { this.text = text; return this; },
+    return { width: 40, setText(text) { this.text = text; return this; },
         setPosition(x, y) { Object.assign(this, { x, y }); return this; },
         setOrigin() { return this; }, setDepth() { return this; },
         setVisible(value) { this.visible = value; return this; }, destroy() { this.destroyed = true; } };
@@ -44,7 +44,10 @@ function scene() {
         remotePlayers: {}, networkSendInterval: 33,
         pendingClockProbes: new Map(), clockOffsets: new Map(), networkRoundTrips: new Map(),
         physics: { add: { image, collider: () => ({ active: false, destroy() { this.destroyed = true; } }) } },
-        add: { text: label }, car: image(5152, 3404, 'car-pink-v2'),
+        add: { text: label, container: () => label(), graphics() {
+            const graphics = new Proxy({}, { get: () => () => graphics });
+            return graphics;
+        } }, car: image(5152, 3404, 'car-pink-v2'),
         updateLobbyStatus() {}, tryCoordinateStart() {}, tryResolvePodium() {},
         animateRemoteEntrance() {},
         publishNetworkState() {},
@@ -146,7 +149,7 @@ test('the lobby releases departed slots, while a racing session cannot be replac
     lobby.removeRemotePlayer('b');
     assert.equal(lobby.remotePlayers.b, undefined);
     assert.equal(departed.sprite.destroyed, true);
-    assert.equal(departed.collider.destroyed, true);
+    assert.equal(departed.collider.active, false);
 
     const race = scene();
     race.receiveRemotePlayer(packet(1, 100));
@@ -229,7 +232,7 @@ test('a finished rival disappears with its label and physics while its result re
         finished: true, finishElapsedMs: 120000, completedLaps: 3,
     }));
     assert.equal(remote.sprite.visible, false);
-    assert.equal(remote.label.visible, false);
+    assert.equal(remote.label.root.visible, false);
     assert.equal(remote.sprite.body.enable, false);
     assert.equal(remote.collider.active, false);
     assert.equal(remote.stateBuffer.length, 0);
