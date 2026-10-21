@@ -52,7 +52,7 @@ export default class PlayerCollisions {
             // O empurrão de outro carro também respeita muros e chegada.
             const safe = resolveTravel(scene.trackCollisions.index, end, result,
                 { x: result.vx, y: result.vy }, body.radius, car.handling.steering,
-                scene.trackCollisions.barrelGrace, car.rotation);
+                null, car.rotation);
             body.position.x += safe.x - end.x;
             body.position.y += safe.y - end.y;
             body.updateCenter();

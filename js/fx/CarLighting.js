@@ -10,10 +10,10 @@ export default class CarLighting {
         this.createHeadlights(scene);
         const rgb = [(color >> 16) & 255, (color >> 8) & 255, color & 255];
         this.underglow = scene.add.image(car.x, car.y, glowTexture(rgb))
-            .setDepth(car.depth - 2).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.2);
+            .setDepth(car.depth - 2).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.42);
         this.headlights = scene.add.image(car.x, car.y, 'car-headlights')
             .setOrigin(0.5, 1).setDepth(car.depth - 3)
-            .setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.62);
+            .setBlendMode(Phaser.BlendModes.ADD).setAlpha(0.78);
         this.highlight = scene.add.image(car.x, car.y, car.texture.key, car.frame.name)
             .setDepth(car.depth + 0.1).setBlendMode(Phaser.BlendModes.ADD);
         this.tailLights = [-1, 1].map(() => scene.add.image(car.x, car.y, glowTexture([255, 46, 58]))
@@ -63,9 +63,9 @@ export default class CarLighting {
         if (!visible) return;
         const pose = carLightPose(car);
         this.headlights.setPosition(pose.x, pose.y).setRotation(pose.rotation)
-            .setScale(car.scaleX, car.scaleY).setAlpha(car.alpha * 0.62);
+            .setScale(car.scaleX, car.scaleY).setAlpha(car.alpha * 0.78);
         this.underglow.setPosition(car.x, car.y).setRotation(car.rotation)
-            .setDisplaySize(115 * car.scaleX, 165 * car.scaleY).setAlpha(car.alpha * 0.2);
+            .setDisplaySize(155 * car.scaleX, 205 * car.scaleY).setAlpha(car.alpha * 0.42);
         if (this.highlight.texture.key !== car.texture.key || this.highlight.frame.name !== car.frame.name) {
             this.highlight.setTexture(car.texture.key, car.frame.name);
         }
@@ -79,7 +79,7 @@ export default class CarLighting {
             light.setPosition(car.x - sin * 50 * car.scaleY + cos * side * car.scaleX,
                 car.y + cos * 50 * car.scaleY + sin * side * car.scaleX)
                 .setDisplaySize((braking ? 34 : 20) * car.scaleX, (braking ? 34 : 20) * car.scaleY)
-                .setAlpha(car.alpha * (braking ? 0.78 : 0.24));
+                .setAlpha(car.alpha * (braking ? 0.9 : 0.3));
         });
     }
 

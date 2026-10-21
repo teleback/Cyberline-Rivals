@@ -4,9 +4,12 @@ import StaticNightLights from './StaticNightLights.js';
 import CarLighting from './CarLighting.js';
 import { getCarSkin } from '../objects/CarSkins.js';
 
+const LAMP_COLORS = [null, [54, 231, 255], null, [255, 75, 206], null, [189, 114, 255]];
+
 export function collectNightSources(map, layers, definitions) {
     const patches = [];
     const groups = new Map();
+    const lamps = [];
     const lookup = new Map();
     for (const tileset of map.tilesets) {
         for (const [localId, source] of Object.entries(definitions.tilesets[tileset.name] || {})) {
@@ -22,8 +25,9 @@ export function collectNightSources(map, layers, definitions) {
             if (!source) continue;
             const x = layer.x + (tile.pixelX + tile.width / 2) * scaleX;
             const y = layer.y + (tile.pixelY + tile.height / 2) * scaleY;
-            patches.push({ x, y, frame: source.frame, rotation: tile.rotation,
-                flipX: tile.flipX, flipY: tile.flipY, alpha: layer.alpha, scaleX, scaleY });
+            const patch = { x, y, frame: source.frame, rotation: tile.rotation,
+                flipX: tile.flipX, flipY: tile.flipY, alpha: layer.alpha, scaleX, scaleY };
+            patches.push(patch);
             for (const region of source.regions) {
                 const key = `${layerIndex}:${region.id}`;
                 if (!groups.has(key)) groups.set(key, { id: region.id, cells: new Map() });
@@ -32,7 +36,7 @@ export function collectNightSources(map, layers, definitions) {
                 const cos = Math.cos(tile.rotation || 0), sin = Math.sin(tile.rotation || 0);
                 groups.get(key).cells.set(`${tile.x},${tile.y}`, {
                     tileX: tile.x, tileY: tile.y, x: x + (dx * cos - dy * sin) * scaleX,
-                    y: y + (dx * sin + dy * cos) * scaleY, weight: region.count,
+                    y: y + (dx * sin + dy * cos) * scaleY, weight: region.count, patch,
                 });
             }
         }
@@ -58,9 +62,20 @@ export function collectNightSources(map, layers, definitions) {
                     cells.delete(key);
                 }
             }
-            lights.push({ id, x: x / weight, y: y / weight, ...definitions.regions[id] });
+            const light = { id, x: x / weight, y: y / weight, ...definitions.regions[id] };
+            lights.push(light);
+            if (id.startsWith('objetos/lamp-')) lamps.push({ light, patches: queue.map(cell => cell.patch) });
         }
     }
+    // Color a stable selection of lamps across the circuit. The lens mask
+    // follows its halo; the pole and its housing keep their original art.
+    lamps.sort((a, b) => a.light.y - b.light.y || a.light.x - b.light.x);
+    lamps.forEach(({ light, patches }, index) => {
+        const color = LAMP_COLORS[index % LAMP_COLORS.length];
+        if (!color) return;
+        light.color = color;
+        for (const patch of patches) patch.tint = color;
+    });
     return { patches, lights };
 }
 
@@ -70,9 +85,9 @@ export default class NightLighting {
         this.worldObjects = [];
         this.carLights = new Map();
         const sources = collectNightSources(scene.map, scene.mapLayers, scene.cache.json.get('nightSources'));
-        // The night wash covers the world, cars and effects. The separate UI
-        // camera ignores it, keeping the HUD and minimap clear.
-        this.wash = scene.add.rectangle(0, 0, 1, 1, 0x03091c, 0.10)
+        // Cool shadows give the emissive signs contrast without hiding the
+        // road. The separate UI camera keeps the HUD and minimap clear.
+        this.wash = scene.add.rectangle(0, 0, 1, 1, 0x04081a, 0.23)
             .setScrollFactor(0).setDepth(1700);
         this.worldObjects.push(this.wash);
         this.staticLights = new StaticNightLights(scene, sources, color => this.createGlowTexture(color));

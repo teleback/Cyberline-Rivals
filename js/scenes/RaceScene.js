@@ -5,6 +5,7 @@ import ImpactAudio from '../fx/ImpactAudio.js';
 import TrackDetails from '../fx/TrackDetails.js';
 import { cacheStaticLayer } from '../objects/StaticMapCulling.js';
 import { applySceneryLayout } from '../objects/SceneryLayout.js';
+import { addSeamlessTileset } from '../objects/TilemapTextures.js';
 import { playMusic, stopMusic } from '../fx/Music.js';
 import Car from "../objects/Car.js";
 import { getCarSkin } from "../objects/CarSkins.js";
@@ -75,7 +76,7 @@ class Race extends Phaser.Scene {
     this.map = map;
 
     const tilesets = [
-      map.addTilesetImage("Pista.png", "pista"),
+      addSeamlessTileset(this, map, "Pista.png", "pista"),
       map.addTilesetImage("Prédios", "predios"),
       map.addTilesetImage("10", "chao"),
       map.addTilesetImage("favela", "favela"),

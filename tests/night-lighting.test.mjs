@@ -53,6 +53,30 @@ test('sampled halo hues match the colored displays and cafe sign', () => {
     assert.ok(yellow[0] > yellow[2] && yellow[1] > yellow[2]);
 });
 
+test('selected streetlamps have matching neon lenses and halos while other lamps stay cool white', () => {
+    const sources = collectNightSources(map, layers, definitions);
+    const lamps = sources.lights.filter(light => light.id.startsWith('objetos/lamp-'));
+    const neon = lamps.filter(light => light.color.join(',') !== definitions.regions[light.id].color.join(','));
+    assert.equal(neon.length, 13);
+    assert.equal(lamps.length - neon.length, 13);
+    assert.equal(new Set(neon.map(light => light.color.join(','))).size, 3);
+    const lensFrames = new Set(Object.values(definitions.tilesets.objetos)
+        .filter(source => source.regions.some(region => region.id.startsWith('objetos/lamp-')))
+        .map(source => source.frame));
+    const tinted = sources.patches.filter(patch => patch.tint);
+    assert.ok(tinted.length >= neon.length);
+    for (const patch of tinted) {
+        assert.ok(lensFrames.has(patch.frame), 'Only reviewed streetlamp lenses are recolored');
+        assert.ok(neon.some(light => Math.hypot(light.x - patch.x, light.y - patch.y) < 64
+            && light.color.join(',') === patch.tint.join(',')), 'Every neon lens follows its local halo');
+    }
+    const reverse = collectNightSources(map, [...layers].reverse(), definitions).lights;
+    for (const light of lamps) {
+        const other = reverse.find(other => other.id === light.id && other.x === light.x && other.y === light.y);
+        assert.deepEqual(other?.color, light.color, 'Lamp colors do not depend on layer order');
+    }
+});
+
 test('source positions follow flipped artwork and hidden layers emit no light', () => {
     const set = { name: 'test', firstgid: 10, total: 1 };
     const config = { tilesets: { test: { 0: { frame: 0,

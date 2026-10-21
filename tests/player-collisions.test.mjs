@@ -52,7 +52,7 @@ test('live player contact cannot push the car through a track wall and listeners
         online: true, collider: { active: true }, vx: -200, vy: 0 };
     const hits = [], scene = { car: { body, rotation: 0, handling: { steering: 0 }, controlsEnabled: true },
         remotePlayers: { b: remote }, physics: { world }, events, time: { now: 100 },
-        trackCollisions: { index: new CollisionIndex([wall]), barrelGrace: new Map() },
+        trackCollisions: { index: new CollisionIndex([wall]) },
         onCrash: (...args) => hits.push(args) };
     const collisions = new PlayerCollisions(scene);
     world.emit('worldstep');

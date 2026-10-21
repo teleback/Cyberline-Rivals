@@ -154,80 +154,60 @@ test('repeated wall impacts always keep the car inside the track', () => {
     for (const time of [100, 116, 400, 799, 800, 1600]) {
         move(80, time, 1400);
         assert.ok(body.center.x < -24, 'walls must remain solid on every physics step');
-        assert.equal(collisions.barrelGrace.size, 0, 'wall impacts never grant collision grace');
     }
 });
 
-test('only the hit barrel grants 700ms to escape and normal collision resumes after clearing it', () => {
+test('the same barrel stays solid on every repeated impact, including immediate turbo hits', () => {
     const barrel = { body: { center: { x: 0, y: 0 }, radius: 20 } };
-    for (const speed of [10, 250]) {
-        const { collisions, scene, body, hits, obstacleHits, move } = liveCollisions({ obstacles: [barrel] });
-        move(-20, 100, speed);
-        assert.ok(body.center.x < -44, 'the first impact still separates the car');
-        assert.equal(hits.length, 1);
-        assert.equal(scene.car.contact.barrel, true);
-        assert.equal(scene.car.contact.rebound, true, 'brief contact sustains the rebound under throttle');
-        assert.equal(scene.car.contact.until, 360, 'rebound assistance expires before barrel grace');
-        for (const time of [116, 400, 799]) {
-            move(0, time, speed);
-            assert.equal(body.center.x, 0, 'the hit barrel cannot pin the car during recovery');
-            assert.equal(body.velocity.x, speed);
-            assert.equal(hits.length, 1, 'recovery does not repeat impact feedback');
-            assert.deepEqual([...collisions.barrelGrace.values()], [800], 'grace cannot renew itself');
+    for (const speed of [10, 250, 1400]) {
+        const { scene, body, hits, obstacleHits, move } = liveCollisions({ obstacles: [barrel] });
+        for (const time of [100, 116, 400, 799, 800, 1600]) {
+            move(100, time, speed);
+            assert.ok(body.center.x < -44, 'the car must never cross the barrel, even during recovery');
+            assert.ok(body.velocity.x < 0, 'every frontal impact pushes the car backwards');
+            assert.equal(scene.car.contact.barrel, true);
+            assert.equal(scene.car.contact.rebound, true);
         }
-        assert.equal(obstacleHits.length, 1);
-        move(-60, 799, -speed);
-        move(-20, 800, speed);
-        assert.ok(body.center.x < -44, 'the barrel is solid again after the deadline and exit');
-        assert.equal(hits.length, 2);
+        assert.equal(hits.length, 6, 'each new impact is resolved');
+        assert.equal(obstacleHits.length, 6);
     }
 });
 
-test('barrel collision does not reactivate inside the car when the grace period expires', () => {
+test('backing away from a barrel and hitting it again requires no collision cooldown', () => {
     const barrel = { body: { center: { x: 0, y: 0 }, radius: 20 } };
-    const { collisions, body, hits, move } = liveCollisions({ obstacles: [barrel] });
+    const { body, hits, move } = liveCollisions({ obstacles: [barrel] });
     move(-20, 100);
-    move(0, 799);
-    move(0, 800, 0);
-    move(0, 1600, 0);
-    assert.equal(body.center.x, 0, 'the timer cannot eject or trap an overlapping car');
+    assert.ok(body.center.x < -44);
+    move(-90, 116, -100);
+    assert.ok(Math.abs(body.center.x + 90) < 1e-8, 'reverse can leave the obstacle freely');
+    assert.equal(body.velocity.x, -100);
     assert.equal(hits.length, 1);
-    move(-60, 1616, -100);
-    move(-70, 1632, -100);
-    assert.equal(body.center.x, -70, 'reverse stays available to leave the barrel');
-    assert.equal(collisions.barrelGrace.size, 0);
-    move(-20, 1648);
-    assert.ok(body.center.x < -44, 'a later impact with the same barrel resolves normally');
-    assert.equal(hits.length, 2);
+    move(-20, 132);
+    assert.ok(body.center.x < -44);
+    assert.ok(body.velocity.x < 0);
+    assert.equal(hits.length, 2, 'the same barrel blocks a second approach immediately');
 });
 
-test('walls, other barrels and the finish barrier stay solid immediately after a barrel impact', () => {
+test('a stationary contact separates the body without repeated impact feedback', () => {
     const barrel = { body: { center: { x: 0, y: 0 }, radius: 20 } };
-    const otherBarrel = { body: { center: { x: 120, y: 0 }, radius: 20 } };
-    for (const options of [
-        { walls: [{ type: 'rect', x: 120, y: -100, width: 4, height: 200 }], limit: 96 },
-        { obstacles: [barrel, otherBarrel], limit: 76 },
-        { finish: { finishLineX: 120, finishLineYMin: -100, finishLineYMax: 100 }, limit: 120 },
-    ]) {
-        const { body, move } = liveCollisions({ obstacles: [barrel], ...options });
-        move(-20, 100);
-        move(200, 116, 1400);
-        assert.ok(body.center.x <= options.limit, 'only the barrel already hit can be crossed');
-    }
-});
-
-test('barrel grace resets when controls are disabled for a new start', () => {
-    const barrel = { body: { center: { x: 0, y: 0 }, radius: 20 } };
-    const { collisions, scene, body, move } = liveCollisions({
-        obstacles: [barrel] });
+    const { body, hits, move } = liveCollisions({ obstacles: [barrel] });
     move(-20, 100);
-    assert.equal(collisions.barrelGrace.size, 1);
-    scene.car.controlsEnabled = false;
-    move(-60, 210);
-    assert.equal(collisions.barrelGrace.size, 0);
-    scene.car.controlsEnabled = true;
-    move(-20, 220);
-    assert.ok(body.center.x < -44, 'a new start has normal barrel collision immediately');
+    const separated = body.center.x;
+    for (const time of [116, 132, 400]) move(separated, time, 0);
+    assert.equal(hits.length, 1);
+    assert.equal(body.center.x, separated);
+});
+
+test('barrels beside a wall remain solid without pushing the car through either surface', () => {
+    const barrel = { body: { center: { x: 0, y: 0 }, radius: 20 } };
+    const wall = { type: 'rect', x: -120, y: -100, width: 4, height: 200 };
+    const { body, move } = liveCollisions({ walls: [wall], obstacles: [barrel] });
+    move(200, 100, 1400);
+    assert.ok(body.center.x < -44);
+    move(-200, 116, -1400);
+    assert.ok(body.center.x > -92, 'the wall behind the car also remains solid');
+    move(200, 132, 1400);
+    assert.ok(body.center.x < -44, 'returning from the wall still hits the barrel');
 });
 
 test('the finish line blocks wrong-way travel from the grid and at boosted speed', () => {
@@ -308,7 +288,6 @@ test('the live collision system enforces the finish barrier on every physics ste
         world.emit('worldstep');
         assert.ok(body.center.x <= finishLine.x, 'Holding reverse cannot push through the barrier');
         assert.equal(body.velocity.x, 0);
-        assert.equal(collisions.barrelGrace.size, 0, 'the finish barrier never disables collision');
     }
     body.position.x -= 30;
     body.updateCenter();

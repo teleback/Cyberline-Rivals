@@ -2,7 +2,6 @@
 // segmentos arredondados, evitando prender o carro entre círculos vizinhos.
 const SKIN = 0.3;
 const CELL = 192;
-const BARREL_COLLISION_GRACE_MS = 700;
 
 export function wallShapes(objects) {
     const shapes = [];
@@ -173,7 +172,6 @@ export default class TrackCollisions {
             ? [{ type: 'finish-line', x: scene.finishLineX,
                 yMin: scene.finishLineYMin, yMax: scene.finishLineYMax }] : [];
         this.index = new CollisionIndex([...walls, ...barrels, ...finish]);
-        this.barrelGrace = new Map();
         this.previous = { x: scene.car.body.center.x, y: scene.car.body.center.y };
         this.step = () => this.update();
         // Arcade clears scene.physics.world before user shutdown handlers run.
@@ -187,20 +185,11 @@ export default class TrackCollisions {
         const end = { x: body.center.x, y: body.center.y };
         if (!car.controlsEnabled) {
             this.previous = end;
-            this.barrelGrace.clear();
             return;
         }
         const now = this.scene.time.now;
-        for (const [barrel, until] of this.barrelGrace) {
-            // Só reativa depois de sair do barril, para não separar o carro
-            // de dentro dele quando o prazo acabar. Paredes seguem sólidas.
-            const clearance = body.radius + (Number.isFinite(car.rotation) ? 24 : 0);
-            if (now >= until && !contactAt(barrel, this.previous.x, this.previous.y, clearance)) {
-                this.barrelGrace.delete(barrel);
-            }
-        }
         const result = resolveTravel(this.index, this.previous, end, body.velocity,
-            body.radius, car.handling.steering, this.barrelGrace, car.rotation);
+            body.radius, car.handling.steering, null, car.rotation);
         body.position.x += result.x - end.x;
         body.position.y += result.y - end.y;
         body.updateCenter();
@@ -215,11 +204,10 @@ export default class TrackCollisions {
         if (largest) this.scene.onCrash(largest.speed, largest);
         for (const hit of result.hits) {
             if (hit.shape.obstacle) {
-                this.barrelGrace.set(hit.shape, now + BARREL_COLLISION_GRACE_MS);
                 this.scene.onObstacleHit(hit.shape.obstacle, hit.speed);
             }
         }
-        // A tolerância do barril evita prender o carro; o contato curto
-        // conserva o recuo mesmo com o acelerador ainda pressionado.
+        // O contato curto sustenta o recuo sob aceleração. O barril continua
+        // sólido em todos os passos, inclusive numa segunda batida imediata.
     }
 }

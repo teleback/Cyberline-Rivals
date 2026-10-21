@@ -72,9 +72,9 @@ do meio-fio se unem mesmo quando estão fora de ordem no editor.
 Barris fazem o carro recuar nas batidas frontais e têm uma animação curta
 de impacto, sem reduzir repetidamente toda a velocidade. O recuo dura um
 instante mesmo segurando o acelerador; freio, ré e direção seguem disponíveis.
-Após a batida, somente o barril atingido deixa de bloquear o carro por
-0,7 segundo. Se o carro ainda estiver sobre ele, a colisão só volta depois
-que sair, evitando travamentos. As paredes e os demais barris continuam sólidos.
+Os barris permanecem sólidos após o impacto: o carro recua e uma nova
+aproximação provoca outra batida, inclusive durante a recuperação e com turbo.
+Freio, ré e direção permitem se afastar ou contornar o obstáculo.
 
 As batidas entre pilotos consideram o movimento relativo dos dois carros,
 inclusive durante o boost. Raspadas preservam a maior parte da velocidade;
@@ -129,12 +129,25 @@ as partes vazias das camadas. O cache de luzes só é atualizado ao mudar de
 bloco, mantendo uma margem para o movimento e o zoom. Luzes de carros fora
 da tela ficam suspensas até seus faróis se aproximarem da câmera.
 
-A pista tem menos escurecimento e halos mais suaves. O turbo mantém uma
+A textura da pista repete dois pixels das bordas de cada tile em uma margem
+interna, gerada uma única vez e reutilizada entre corridas. Isso evita frestas
+nas emendas durante o movimento e o zoom, preservando a suavidade da iluminação.
+
+A pista tem uma sombra azulada um pouco mais escura para destacar os neons.
+Letreiros e fachadas iluminadas têm halos coloridos com um núcleo mais intenso,
+e as bordas do circuito recebem pequenas luzes ciano, violeta e magenta com
+brilho no chão. Os pontos de luz têm o mesmo tamanho, alinham-se entre os
+meios-fios nas retas e mantêm distância nas curvas para evitar sobreposição.
+Parte dos postes alterna entre ciano, magenta e violeta, com a lente e o halo
+na mesma cor. Os faróis e o neon sob os carros também têm mais presença.
+O HUD e o minimapa mantêm o brilho original. O turbo mantém uma
 mudança discreta de cor no computador, com a pista nítida; no celular,
 fumaça e marcas de pneu também usam limites menores e objetos reutilizados.
 Os refletores de borda são gravados uma vez em blocos de textura de meia
 resolução; somente os blocos próximos da câmera ficam visíveis. Os impactos
 reutilizam emissores e imagens, com até 8 faíscas por batida no celular.
+Os blocos de luz e reflexos não repetem suas bordas, evitando linhas de neon
+nas emendas sobre o asfalto, inclusive ao redor do Cybercafé.
 
 O cenário respeita os deslocamentos definidos no Tiled. Prédios, contêineres,
 sucata, cercas, arbustos e postes foram ajustados para liberar o asfalto ao

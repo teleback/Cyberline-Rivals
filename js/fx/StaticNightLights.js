@@ -26,29 +26,53 @@ export default class StaticNightLights {
         this.chunks = indexLightChunks(sources);
         this.cache = new Map();
         this.glowTexture = glowTexture;
-        // Keep map lights under the night wash so no patch bypasses its tint.
-        this.container = scene.add.container(0, 0).setDepth(1699);
+        // Emissive artwork and its spill sit above the ambient night tint.
+        // SCREEN keeps their original hues as the surroundings get darker.
+        this.container = scene.add.container(0, 0).setDepth(1701);
         scene.events.once('shutdown', () => this.destroy());
+    }
+
+    emissiveFrame(patch) {
+        const textures = this.scene.textures;
+        const original = textures.getFrame('night-emissive', patch.frame);
+        if (!patch.tint) return original;
+        const key = `night-lens-${patch.frame}-${patch.tint.join('-')}`;
+        if (!textures.exists(key)) {
+            const texture = textures.createCanvas(key, original.cutWidth, original.cutHeight);
+            const context = texture.getContext();
+            context.drawImage(original.source.image, original.cutX, original.cutY,
+                original.cutWidth, original.cutHeight, 0, 0, original.cutWidth, original.cutHeight);
+            // Recolor only opaque lens pixels, keeping the mask's alpha.
+            context.globalCompositeOperation = 'source-in';
+            context.fillStyle = `rgb(${patch.tint.join(',')})`;
+            context.fillRect(0, 0, original.cutWidth, original.cutHeight);
+            texture.refresh();
+        }
+        return textures.getFrame(key);
     }
 
     bake(key, chunk) {
         const textureKey = `night-block-${key}`;
         const texture = this.scene.textures.createCanvas(textureKey, CHUNK_SIZE, CHUNK_SIZE);
         const context = texture.getContext();
-        // Alpha blending preserves artwork hues instead of adding the same
-        // bright pixels twice and bleaching signs or overlapping halos.
+        // Bake a broad spill and a smaller luminous core once per block.
+        // No blur pass or animated full-screen lighting is needed.
         context.globalCompositeOperation = 'source-over';
         for (const light of chunk.lights) {
             const image = this.scene.textures.get(this.glowTexture(light.color)).getSourceImage();
-            context.globalAlpha = 0.18;
+            context.globalAlpha = 0.34;
             context.drawImage(image, light.x - light.radius - chunk.x, light.y - light.radius - chunk.y,
                 light.radius * 2, light.radius * 2);
+            const coreRadius = light.radius * 0.38;
+            context.globalAlpha = 0.22;
+            context.drawImage(image, light.x - coreRadius - chunk.x, light.y - coreRadius - chunk.y,
+                coreRadius * 2, coreRadius * 2);
         }
         context.imageSmoothingEnabled = false;
         for (const patch of chunk.patches) {
-            const frame = this.scene.textures.getFrame('night-emissive', patch.frame);
+            const frame = this.emissiveFrame(patch);
             context.save();
-            context.globalAlpha = patch.alpha * 0.52;
+            context.globalAlpha = patch.alpha * 0.72;
             context.translate(patch.x - chunk.x, patch.y - chunk.y);
             context.scale(patch.scaleX ?? 1, patch.scaleY ?? 1);
             context.rotate(patch.rotation || 0);
@@ -58,8 +82,10 @@ export default class StaticNightLights {
             context.restore();
         }
         texture.refresh();
+        // A cached block must not sample light from its opposite edge.
+        texture.setWrap(Phaser.Textures.WrapMode.CLAMP_TO_EDGE);
         const image = this.scene.add.image(chunk.x, chunk.y, textureKey)
-            .setOrigin(0).setBlendMode(Phaser.BlendModes.NORMAL);
+            .setOrigin(0).setBlendMode(Phaser.BlendModes.SCREEN);
         this.container.add(image);
         return { image, textureKey };
     }
