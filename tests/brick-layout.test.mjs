@@ -9,7 +9,7 @@ const track = map.layers.find(layer => layer.name === 'Pista');
 const oilSpots = [[480,928], [2400,928], [1440,1120], [4000,1760], [1952,1888],
     [4896,1888], [480,2144], [2400,2720], [5664,3168], [3616,3488]];
 const barrels = [[1248,838], [3424,1018], [4090,1440], [2310,1696], [5242,2528],
-    [1030,2656], [570,3104], [3296,3398], [4832,3578]];
+    [1030,2656], [570,3104], [3296,3398], [4192,3578]];
 const boosts = [[70,54,Math.PI], [46,54,Math.PI], [32,38,Math.PI], [7.5,20,-Math.PI/2],
     [22,24,Math.PI/2], [48,15,0], [65,44,0], [88,49,Math.PI/2]];
 // These match the expanded runtime exclusions supplied by the collectible

@@ -995,7 +995,7 @@ class Race extends Phaser.Scene {
       { x: 1030, y: 2656 },
       { x: 570, y: 3104 },
       { x: 3296, y: 3398 },
-      { x: 4832, y: 3578 },
+      { x: 4192, y: 3578 },
     ];
 
     // Só o barril azul. Corpo de colisão em círculo (mais barato que
