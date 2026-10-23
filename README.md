@@ -104,7 +104,9 @@ Os tijolinhos da pista reaparecem por volta, mantendo um único dono por tijolin
 
 O resultado mostra os dois carros animados, o primeiro e o segundo colocado, o tempo de cada piloto e os tijolinhos ganhos com a coleta e as recompensas. O menor tempo decide o vencedor; não há multiplicador de pontuação por tempo. Os valores das recompensas ficam em `js/objects/RaceRewards.js`.
 
-O campeão fica em destaque dourado, com o detalhamento dos ganhos e o total de tijolinhos em cada cartão. Ao terminar a contagem, aparece **VOLTAR AO MENU**, disponível por toque, clique, Enter, Espaço, Esc ou uma nova confirmação no controle. A saída libera a presença na sala e permite iniciar outra partida sem recarregar a página.
+O pódio tem uma cidade noturna ao fundo, ponte suspensa, refletores e piso em perspectiva. Títulos e números usam a fonte arcade do jogo; as recompensas ficam em placas com cantos recortados e o total em um painel separado. O campeão fica em destaque dourado e faz um giro de comemoração; o vice chega em drift sobre uma plataforma ciano. Os dois carros continuam flutuando sobre os pódios iluminados. A contagem soma coleta, voltas, chegada e vitória em sequência, com tijolinhos voando até o total, barra de progresso e um brilho ao concluir. Toque ou pressione uma tecla para revelar os valores imediatamente.
+
+Ao terminar a contagem, aparece **VOLTAR AO MENU**, disponível por toque, clique, Enter, Espaço, Esc ou uma nova confirmação no controle. A saída libera a presença na sala e permite iniciar outra partida sem recarregar a página.
 
 Há **10 salas**, com limite de **2 pilotos por sala** e ocupação ao vivo.
 Salas completas mostram **PARTIDA EM ANDAMENTO** e bloqueiam outra entrada.
