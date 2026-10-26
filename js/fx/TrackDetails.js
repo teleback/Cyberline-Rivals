@@ -1,6 +1,6 @@
 const SIZE = 512;
 const GLOW_RADIUS = 56;
-const COLORS = ['#36e7ff', '#36e7ff', '#bd72ff', '#ff4bce'];
+const COLORS = ['#00e0ff', '#00e0ff', '#9d28ff', '#ff10b8'];
 const SPACING = 128;
 const MIN_SPACING = GLOW_RADIUS * 2;
 
@@ -72,17 +72,19 @@ export default class TrackDetails {
                     ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
                     ctx.save(); ctx.scale(1, 0.55);
                     const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, GLOW_RADIUS);
-                    glow.addColorStop(0, `${color}8c`);
-                    glow.addColorStop(0.3, `${color}38`);
+                    glow.addColorStop(0, `${color}a8`);
+                    glow.addColorStop(0.3, `${color}50`);
                     glow.addColorStop(1, `${color}00`);
                     ctx.fillStyle = glow;
                     ctx.fillRect(-GLOW_RADIUS, -GLOW_RADIUS, GLOW_RADIUS * 2, GLOW_RADIUS * 2);
                     ctx.restore();
                     ctx.fillStyle = '#07111d'; ctx.fillRect(-16, -4, 32, 8);
-                    ctx.globalAlpha = 0.3; ctx.fillStyle = color;
+                    ctx.globalAlpha = 0.4; ctx.fillStyle = color;
                     ctx.fillRect(-19, -6, 38, 12);
-                    ctx.globalAlpha = 1; ctx.fillRect(-13, -2, 26, 4);
-                    ctx.globalAlpha = 0.9; ctx.fillStyle = '#dcfbff'; ctx.fillRect(-10, -1, 20, 2);
+                    // Keep the luminous core colored instead of washing it
+                    // out with white. All color work stays in the cached bake.
+                    ctx.globalAlpha = 0.85; ctx.fillRect(-13, -2, 26, 4);
+                    ctx.globalAlpha = 1; ctx.fillRect(-10, -1, 20, 2);
                     ctx.restore();
                 }
                 texture.refresh();

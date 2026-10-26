@@ -60,11 +60,12 @@ export default class StaticNightLights {
         context.globalCompositeOperation = 'source-over';
         for (const light of chunk.lights) {
             const image = this.scene.textures.get(this.glowTexture(light.color)).getSourceImage();
-            context.globalAlpha = 0.34;
+            const intensity = light.intensity ?? 1;
+            context.globalAlpha = 0.34 * intensity;
             context.drawImage(image, light.x - light.radius - chunk.x, light.y - light.radius - chunk.y,
                 light.radius * 2, light.radius * 2);
             const coreRadius = light.radius * 0.38;
-            context.globalAlpha = 0.22;
+            context.globalAlpha = 0.22 * intensity;
             context.drawImage(image, light.x - coreRadius - chunk.x, light.y - coreRadius - chunk.y,
                 coreRadius * 2, coreRadius * 2);
         }
@@ -72,7 +73,7 @@ export default class StaticNightLights {
         for (const patch of chunk.patches) {
             const frame = this.emissiveFrame(patch);
             context.save();
-            context.globalAlpha = patch.alpha * 0.72;
+            context.globalAlpha = patch.alpha * (patch.tint ? 0.9 : 0.72);
             context.translate(patch.x - chunk.x, patch.y - chunk.y);
             context.scale(patch.scaleX ?? 1, patch.scaleY ?? 1);
             context.rotate(patch.rotation || 0);

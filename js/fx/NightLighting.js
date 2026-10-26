@@ -4,7 +4,7 @@ import StaticNightLights from './StaticNightLights.js';
 import CarLighting from './CarLighting.js';
 import { getCarSkin } from '../objects/CarSkins.js';
 
-const LAMP_COLORS = [null, [54, 231, 255], null, [255, 75, 206], null, [189, 114, 255]];
+const LAMP_COLORS = [null, [0, 224, 255], null, [255, 16, 184], null, [157, 40, 255]];
 
 export function collectNightSources(map, layers, definitions) {
     const patches = [];
@@ -74,6 +74,8 @@ export function collectNightSources(map, layers, definitions) {
         const color = LAMP_COLORS[index % LAMP_COLORS.length];
         if (!color) return;
         light.color = color;
+        // Applied only while baking cached blocks, with the same halo size.
+        light.intensity = 1.35;
         for (const patch of patches) patch.tint = color;
     });
     return { patches, lights };
