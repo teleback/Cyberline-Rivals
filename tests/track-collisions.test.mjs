@@ -126,6 +126,57 @@ test('the rotated front and rear bodywork hit walls before the center circle', (
     assert.equal(side.hits.length, 0, 'a sideways car uses its width rather than its length');
 });
 
+test('nearby non-touching shapes skip distance calculations while contact normals stay exact', () => {
+    const shapes = [
+        { type: 'circle', x: 0, y: 0, radius: 14 },
+        { type: 'segment', ax: -30, ay: 0, bx: 30, by: 0, radius: 14 },
+        { type: 'rect', x: -20, y: -10, width: 40, height: 20 },
+    ];
+    const hypot = Math.hypot;
+    let distances = 0;
+    Math.hypot = (...values) => { distances++; return hypot(...values); };
+    try {
+        for (const shape of shapes) {
+            assert.equal(contactAt(shape, 120, 120, 24), null);
+        }
+        assert.equal(distances, 0, 'misses need no square root');
+        assert.equal(contactAt(shapes[0], 38, 0, 24), null, 'tangent circles do not overlap');
+        assert.deepEqual(contactAt(shapes[0], 0, -30, 24), { nx: 0, ny: -1, depth: 8 });
+        assert.deepEqual(contactAt(shapes[1], 0, -30, 24), { nx: 0, ny: -1, depth: 8 });
+        assert.deepEqual(contactAt(shapes[2], 0, -30, 24), { nx: 0, ny: -1, depth: 4 });
+        assert.equal(distances, 3, 'actual contacts still calculate their exact distance');
+    } finally {
+        Math.hypot = hypot;
+    }
+});
+
+test('reused collision scratch matches independent sweeps and preserves earlier hit results', () => {
+    const index = new CollisionIndex([
+        { type: 'rect', x: 0, y: -200, width: 4, height: 400 },
+        { type: 'circle', x: -150, y: 60, radius: 20, obstacle: true },
+        { type: 'segment', ax: -300, ay: -100, bx: -220, by: -70, radius: 14 },
+    ]);
+    const scratch = { hits: new Map(), candidates: new Set() };
+    const cases = [
+        [{ x: -100, y: 0 }, { x: 80, y: 30 }, { x: 820, y: 120 }, Math.PI / 2],
+        [{ x: -240, y: 60 }, { x: -120, y: 60 }, { x: 390, y: 0 }, 0],
+        [{ x: -250, y: -180 }, { x: -250, y: -80 }, { x: 0, y: 820 }, 0],
+        [{ x: 800, y: 800 }, { x: 820, y: 820 }, { x: 390, y: 390 }, Math.PI / 4],
+    ];
+    const retained = [];
+    for (let pass = 0; pass < 3; pass++) {
+        for (const [start, end, velocity, rotation] of cases) {
+            const expected = resolveTravel(index, start, end, velocity, 24, 0.5, null, rotation);
+            const actual = resolveTravel(index, start, end, velocity, 24, 0.5, null, rotation, scratch);
+            assert.deepEqual(actual, expected);
+            retained.push({ actual, expected });
+        }
+    }
+    assert.ok(retained.some(({ actual }) => actual.hits.length), 'sweeps include real impacts');
+    assert.equal(retained.at(-1).actual.hits.length, 0, 'clear space never inherits an earlier impact');
+    for (const { actual, expected } of retained) assert.deepEqual(actual, expected);
+});
+
 const finishLine = { type: 'finish-line', x: 5152, yMin: 3308, yMax: 3668 };
 
 function liveCollisions({ walls = [], obstacles = [], finish = {} } = {}) {

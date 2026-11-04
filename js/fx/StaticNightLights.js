@@ -26,6 +26,9 @@ export default class StaticNightLights {
         this.chunks = indexLightChunks(sources);
         this.cache = new Map();
         this.glowTexture = glowTexture;
+        // The camera displays these soft lights below their native size.
+        // Mobile keeps the same world coverage with 75% fewer cached pixels.
+        this.resolution = scene.fx?.lite ? 0.5 : 1;
         // Emissive artwork and its spill sit above the ambient night tint.
         // SCREEN keeps their original hues as the surroundings get darker.
         this.container = scene.add.container(0, 0).setDepth(1701);
@@ -53,8 +56,10 @@ export default class StaticNightLights {
 
     bake(key, chunk) {
         const textureKey = `night-block-${key}`;
-        const texture = this.scene.textures.createCanvas(textureKey, CHUNK_SIZE, CHUNK_SIZE);
+        const resolution = this.resolution ?? 1;
+        const texture = this.scene.textures.createCanvas(textureKey, CHUNK_SIZE * resolution, CHUNK_SIZE * resolution);
         const context = texture.getContext();
+        context.scale(resolution, resolution);
         // Bake a broad spill and a smaller luminous core once per block.
         // No blur pass or animated full-screen lighting is needed.
         context.globalCompositeOperation = 'source-over';
@@ -86,7 +91,7 @@ export default class StaticNightLights {
         // A cached block must not sample light from its opposite edge.
         texture.setWrap(Phaser.Textures.WrapMode.CLAMP_TO_EDGE);
         const image = this.scene.add.image(chunk.x, chunk.y, textureKey)
-            .setOrigin(0).setBlendMode(Phaser.BlendModes.SCREEN);
+            .setOrigin(0).setScale(1 / resolution).setBlendMode(Phaser.BlendModes.SCREEN);
         this.container.add(image);
         return { image, textureKey };
     }

@@ -95,6 +95,7 @@ export default class OilFX {
         this.car = car;
         this.spots = spots;
         this.container = container;
+        this.lite = !!scene.fx?.lite;
 
         // Objetos que precisam ser ignorados pela câmera de UI.
         this.worldObjects = [];
@@ -178,7 +179,7 @@ export default class OilFX {
             scale: { start: 0.34, end: 0.04 },
             alpha: { start: 0.95, end: 0 },
             tint: purples,
-            blendMode: 'ADD', maxAliveParticles: 64,
+            blendMode: 'ADD', maxAliveParticles: this.lite ? 20 : 64,
             emitting: false
         }).setDepth(1001);
 
@@ -189,7 +190,7 @@ export default class OilFX {
             scale: { start: 0.5, end: 0.05 },
             alpha: { start: 0.95, end: 0 },
             tint: purples,
-            blendMode: 'ADD', maxAliveParticles: 40,
+            blendMode: 'ADD', maxAliveParticles: this.lite ? 12 : 40,
             emitting: false
         }).setDepth(1001);
 
@@ -200,7 +201,7 @@ export default class OilFX {
             scale: { start: 0.14, end: 0 },
             alpha: { start: 1, end: 0 },
             tint: purples,
-            maxAliveParticles: 40,
+            maxAliveParticles: this.lite ? 10 : 40,
             blendMode: 'ADD',
             emitting: false
         }).setDepth(1002);
@@ -212,7 +213,7 @@ export default class OilFX {
             speed: 0,
             scale: { start: 0.3, end: 0.2 },
             alpha: { start: 0.32, end: 0 },
-            tint: purples, blendMode: 'ADD', maxAliveParticles: 80,
+            tint: purples, blendMode: 'ADD', maxAliveParticles: this.lite ? 24 : 80,
             emitting: false
         }).setDepth(700);
 
@@ -257,8 +258,8 @@ export default class OilFX {
     onEnter(speedFactor) {
         const car = this.car;
 
-        this.splash.explode(10 + Math.round(16 * speedFactor), car.x, car.y);
-        this.glint.explode(8, car.x, car.y);
+        this.splash.explode(this.lite ? 6 + Math.round(4 * speedFactor) : 10 + Math.round(16 * speedFactor), car.x, car.y);
+        this.glint.explode(this.lite ? 3 : 8, car.x, car.y);
 
         // Qual poça foi? Só olhamos aqui, na entrada (10 checagens, uma vez).
         const physics = this.scene.physics;
@@ -350,8 +351,9 @@ export default class OilFX {
     }
 
     emitOnOil(dt, speedFactor) {
-        this.dropAcc += (TUNING.dropsBase + TUNING.dropsPerSpeed * speedFactor) * dt;
-        this.glintAcc += (TUNING.glintsBase + TUNING.glintsPerSpeed * speedFactor) * dt;
+        const density = this.lite ? 0.4 : 1;
+        this.dropAcc += (TUNING.dropsBase + TUNING.dropsPerSpeed * speedFactor) * dt * density;
+        this.glintAcc += (TUNING.glintsBase + TUNING.glintsPerSpeed * speedFactor) * dt * density;
 
         let n = 0;
         while (this.dropAcc >= 1 && n++ < 6) {
@@ -376,10 +378,11 @@ export default class OilFX {
             return;
         }
 
+        const spacing = TUNING.trailSpacing * (this.lite ? 2 : 1);
         this.trailDist += speed * dt;
         let n = 0;
-        while (this.trailDist >= TUNING.trailSpacing && n++ < 4) {
-            this.trailDist -= TUNING.trailSpacing;
+        while (this.trailDist >= spacing && n++ < 4) {
+            this.trailDist -= spacing;
             // A película some aos poucos: menos marcas conforme `coat` cai.
             if (Math.random() > this.coat) continue;
             const left = this.wheelPos(-TUNING.wheelLong, -TUNING.wheelLat);
@@ -387,7 +390,7 @@ export default class OilFX {
             this.trail.explode(1, left.x, left.y);
             this.trail.explode(1, right.x, right.y);
         }
-        this.trailDist = Math.min(this.trailDist, TUNING.trailSpacing);
+        this.trailDist = Math.min(this.trailDist, spacing);
     }
 
     /**

@@ -21,7 +21,9 @@ export function getCarSkin(id) {
 
 export function loadCarSkins(scene, suffix = '') {
     for (const car of CAR_SKINS) {
-        if (!scene.textures.exists(car.source)) scene.load.image(car.source, car.path + suffix);
+        if (!scene.textures.exists(car.texture) && !scene.textures.exists(car.source)) {
+            scene.load.image(car.source, car.path + suffix);
+        }
     }
 }
 
@@ -55,5 +57,8 @@ export function prepareCarSkins(scene) {
         target.drawImage(source, left, top, width, height,
             Math.round(49.5 - drawWidth / 2), Math.round(80 - drawHeight / 2), drawWidth, drawHeight);
         canvas.refresh();
+        // O frame final basta para garagem e corrida. Libera a imagem grande
+        // somente depois de copiá-la e atualizar sua textura na GPU.
+        if (car.source !== car.texture) scene.textures.remove(car.source);
     }
 }

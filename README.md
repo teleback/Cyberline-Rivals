@@ -126,6 +126,12 @@ as mesmas posições, dimensões e regras de aceleração.
 
 ## Desempenho e iluminação
 
+As células vazias do mapa usam `null`, evitando criar cerca de **870 mil
+objetos de tile** sem arte ao entrar na corrida. Os tiles ocupados, a física
+e a posição dos elementos continuam iguais. As imagens grandes dos carros
+são liberadas após gerar os sprites finais, que ficam disponíveis para
+reutilização entre a garagem e as corridas.
+
 O cenário reaproveita os blocos visíveis até a câmera mudar de área e pula
 as partes vazias das camadas. O cache de luzes só é atualizado ao mudar de
 bloco, mantendo uma margem para o movimento e o zoom. Luzes de carros fora
@@ -150,6 +156,16 @@ resolução; somente os blocos próximos da câmera ficam visíveis. Os impactos
 reutilizam emissores e imagens, com até 8 faíscas por batida no celular.
 Os blocos de luz e reflexos não repetem suas bordas, evitando linhas de neon
 nas emendas sobre o asfalto, inclusive ao redor do Cybercafé.
+
+No celular, os blocos de iluminação noturna usam meia resolução, com **75%
+menos pixels** em cache e a mesma área iluminada. Os refletores de borda
+também são gerados sob demanda, com até 24 blocos em cache no campo de visão
+da corrida, em vez de reservar texturas para o circuito inteiro. Seus
+recursos são liberados ao sair da pista. O óleo tem limites menores de
+partículas e rastros no celular, e o menu pula os filtros de tela nesses
+aparelhos. Os cálculos de colisão reutilizam memória e descartam candidatos
+distantes antes de calcular o contato; direção, turbo e regras de corrida
+mantêm o mesmo comportamento.
 
 O cenário respeita os deslocamentos definidos no Tiled. Prédios, contêineres,
 sucata, cercas, arbustos e postes foram ajustados para liberar o asfalto ao

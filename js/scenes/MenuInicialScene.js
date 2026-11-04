@@ -1,5 +1,6 @@
 import { loadMusic, playMusic } from '../fx/Music.js';
 import { onAnyButton } from '../input/GamepadInput.js';
+import { wantsTouchControls } from '../input/TouchControls.js';
 
 const CYAN = 0x00eaff;
 const PINK = 0xff2bd6;
@@ -151,7 +152,7 @@ class MenuInicial extends Phaser.Scene {
   }
 
   setupFilters() {
-    if (!this.renderer.gl) return;
+    if (!this.renderer.gl || wantsTouchControls()) return;
     this.cover.enableFilters();
     const color = this.cover.filters.internal.addColorMatrix();
     color.colorMatrix.saturate(0.18, false);

@@ -72,7 +72,9 @@ class Race extends Phaser.Scene {
     this.raceRoundId = null;
     this.raceResultsData = null;
     this.finalScoreData = null;
-    const map = this.make.tilemap({ key: "pista" });
+    // 98% das células das camadas estão vazias. Null evita criar centenas
+    // de milhares de Tiles sem arte, mantendo os tiles ocupados intactos.
+    const map = this.make.tilemap({ key: "pista", insertNull: true });
     this.map = map;
 
     const tilesets = [

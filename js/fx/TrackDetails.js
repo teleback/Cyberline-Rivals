@@ -1,4 +1,6 @@
 const SIZE = 512;
+const CACHE_LIMIT = 24;
+const VIEW_MARGIN = 96;
 const GLOW_RADIUS = 56;
 const COLORS = ['#00e0ff', '#00e0ff', '#9d28ff', '#ff10b8'];
 const SPACING = 128;
@@ -43,8 +45,8 @@ export function buildTrackReflectors(shapes) {
     });
 }
 
-// Refletores e pequenas reflexões são pintados uma vez em blocos de textura.
-// Sem shaders, partículas de ambiente ou redesenho do circuito a cada frame.
+// Bake nearby reflectors once and retain a bounded cache. The stable
+// container also keeps future blocks excluded from the UI camera.
 export default class TrackDetails {
     constructor(scene, shapes) {
         this.scene = scene;
@@ -61,51 +63,91 @@ export default class TrackDetails {
             }
         };
         for (const { x, y, angle, color } of buildTrackReflectors(shapes)) mark(x, y, angle, color);
-        this.worldObjects = [...chunks.values()].map(({ cx, cy, marks }) => {
-            const key = `track-reflectors-${cx}-${cy}`;
-            if (!scene.textures.exists(key)) {
-                // Meia resolução: cada linha de 2 px ocupa um texel. Reduz
-                // o uso de memória destas texturas em 75%, inclusive no celular.
-                const texture = scene.textures.createCanvas(key, SIZE / 2, SIZE / 2), ctx = texture.getContext();
-                ctx.scale(0.5, 0.5);
-                for (const { x, y, angle, color } of marks) {
-                    ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
-                    ctx.save(); ctx.scale(1, 0.55);
-                    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, GLOW_RADIUS);
-                    glow.addColorStop(0, `${color}a8`);
-                    glow.addColorStop(0.3, `${color}50`);
-                    glow.addColorStop(1, `${color}00`);
-                    ctx.fillStyle = glow;
-                    ctx.fillRect(-GLOW_RADIUS, -GLOW_RADIUS, GLOW_RADIUS * 2, GLOW_RADIUS * 2);
-                    ctx.restore();
-                    ctx.fillStyle = '#07111d'; ctx.fillRect(-16, -4, 32, 8);
-                    ctx.globalAlpha = 0.4; ctx.fillStyle = color;
-                    ctx.fillRect(-19, -6, 38, 12);
-                    // Keep the luminous core colored instead of washing it
-                    // out with white. All color work stays in the cached bake.
-                    ctx.globalAlpha = 0.85; ctx.fillRect(-13, -2, 26, 4);
-                    ctx.globalAlpha = 1; ctx.fillRect(-10, -1, 20, 2);
-                    ctx.restore();
-                }
-                texture.refresh();
-                // Power-of-two canvases repeat by default in WebGL. Sampling
-                // their opposite edge leaks neon into a thin line on the road.
-                texture.setWrap(Phaser.Textures.WrapMode.CLAMP_TO_EDGE);
-            }
-            return scene.add.image(cx * SIZE, cy * SIZE, key).setOrigin(0).setScale(2).setDepth(470).setVisible(false);
-        });
+        this.chunks = chunks;
+        this.cache = new Map();
+        this.container = scene.add.container(0, 0).setDepth(470);
+        this.worldObjects = [this.container];
+        scene.events.once('shutdown', () => this.destroy());
         this.update();
+    }
+
+    bake(chunk) {
+        const { cx, cy, marks } = chunk;
+        const key = `track-reflectors-${cx}-${cy}`;
+        if (!this.scene.textures.exists(key)) {
+            // Meia resolução: cada linha de 2 px ocupa um texel. Reduz
+            // o uso de memória destas texturas em 75%, inclusive no celular.
+            const texture = this.scene.textures.createCanvas(key, SIZE / 2, SIZE / 2), ctx = texture.getContext();
+            ctx.scale(0.5, 0.5);
+            for (const { x, y, angle, color } of marks) {
+                ctx.save(); ctx.translate(x, y); ctx.rotate(angle);
+                ctx.save(); ctx.scale(1, 0.55);
+                const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, GLOW_RADIUS);
+                glow.addColorStop(0, `${color}a8`);
+                glow.addColorStop(0.3, `${color}50`);
+                glow.addColorStop(1, `${color}00`);
+                ctx.fillStyle = glow;
+                ctx.fillRect(-GLOW_RADIUS, -GLOW_RADIUS, GLOW_RADIUS * 2, GLOW_RADIUS * 2);
+                ctx.restore();
+                ctx.fillStyle = '#07111d'; ctx.fillRect(-16, -4, 32, 8);
+                ctx.globalAlpha = 0.4; ctx.fillStyle = color;
+                ctx.fillRect(-19, -6, 38, 12);
+                // Keep the luminous core colored instead of washing it
+                // out with white. All color work stays in the cached bake.
+                ctx.globalAlpha = 0.85; ctx.fillRect(-13, -2, 26, 4);
+                ctx.globalAlpha = 1; ctx.fillRect(-10, -1, 20, 2);
+                ctx.restore();
+            }
+            texture.refresh();
+            // Power-of-two canvases repeat by default in WebGL. Sampling
+            // their opposite edge leaks neon into a thin line on the road.
+            texture.setWrap(Phaser.Textures.WrapMode.CLAMP_TO_EDGE);
+        }
+        const image = this.scene.add.image(cx * SIZE, cy * SIZE, key).setOrigin(0).setScale(2);
+        this.container.add(image);
+        return { image, textureKey: key };
     }
     update() {
         const view = this.scene.cameras.main.worldView;
-        const left = Math.floor(view.x / SIZE) - 1, top = Math.floor(view.y / SIZE) - 1;
-        const right = Math.floor(view.right / SIZE) + 1, bottom = Math.floor(view.bottom / SIZE) + 1;
+        const left = Math.floor((view.x - VIEW_MARGIN) / SIZE), top = Math.floor((view.y - VIEW_MARGIN) / SIZE);
+        const right = Math.floor((view.right + VIEW_MARGIN) / SIZE), bottom = Math.floor((view.bottom + VIEW_MARGIN) / SIZE);
         const key = `${left},${top},${right},${bottom}`;
         if (key === this.viewKey) return;
         this.viewKey = key;
-        for (const image of this.worldObjects) {
-            const x = image.x / SIZE, y = image.y / SIZE;
-            image.setVisible(x >= left && x <= right && y >= top && y <= bottom);
+        const nearby = new Map();
+        // The camera advances after Scene.update. Keep the margin drawable
+        // too, so a fast move or turbo zoom cannot reveal a blank edge.
+        for (let y = top; y <= bottom; y++) {
+            for (let x = left; x <= right; x++) {
+                const chunkKey = `${x},${y}`;
+                const chunk = this.chunks.get(chunkKey);
+                if (!chunk) continue;
+                nearby.set(chunkKey, chunk);
+            }
         }
+        const missing = [...nearby.keys()].filter(chunkKey => !this.cache.has(chunkKey)).length;
+        // Release old canvases before uploading replacements, keeping the
+        // transition between regions within the same memory budget.
+        for (const [chunkKey, entry] of this.cache) {
+            if (nearby.has(chunkKey)) continue;
+            entry.image.setVisible(false);
+            if (this.cache.size + missing > Math.max(CACHE_LIMIT, nearby.size)) {
+                entry.image.destroy();
+                this.scene.textures.remove(entry.textureKey);
+                this.cache.delete(chunkKey);
+            }
+        }
+        for (const [chunkKey, chunk] of nearby) {
+            const entry = this.cache.get(chunkKey) || this.bake(chunk);
+            this.cache.delete(chunkKey);
+            this.cache.set(chunkKey, entry);
+            entry.image.setVisible(true);
+        }
+    }
+
+    destroy() {
+        this.container.destroy();
+        for (const entry of this.cache.values()) this.scene.textures.remove(entry.textureKey);
+        this.cache.clear();
     }
 }

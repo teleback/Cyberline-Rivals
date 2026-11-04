@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { buildTrackReflectors } from '../js/fx/TrackDetails.js';
+import { EventEmitter } from 'node:events';
+import TrackDetails, { buildTrackReflectors } from '../js/fx/TrackDetails.js';
 import { wallShapes } from '../js/objects/TrackCollisions.js';
 
 test('opposite curbs share evenly spaced fixtures despite different collision starts', () => {
@@ -52,4 +53,103 @@ test('the full circuit has no overlapping reflectors, including rect and curve j
         const distance = Math.hypot(marks[i].x - marks[j].x, marks[i].y - marks[j].y);
         assert.ok(distance >= 100, `Overlapping curb lights at ${marks[i].x},${marks[i].y}`);
     }
+});
+
+function cachedTrack(shapes, view) {
+    globalThis.Phaser = { Textures: { WrapMode: { CLAMP_TO_EDGE: 'clamp' } } };
+    const textures = new Map(), children = new Set();
+    const metrics = { baked: 0, released: 0, peakPixels: 0, visibilityWrites: 0 };
+    const events = new EventEmitter();
+    const container = { setDepth(depth) { this.depth = depth; return this; },
+        add(image) { children.add(image); }, destroy() { for (const child of children) child.destroy(); } };
+    const context = { scale() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillRect() {},
+        createRadialGradient: () => ({ addColorStop() {} }) };
+    const scene = { events, cameras: { main: { worldView: view } }, textures: {
+        exists: key => textures.has(key),
+        createCanvas(key, width, height) {
+            assert.ok(!textures.has(key), 'Cached blocks must not be uploaded again');
+            const texture = { width, height, getContext: () => context, refresh() {},
+                setWrap(wrap) { this.wrap = wrap; } };
+            textures.set(key, texture);
+            metrics.baked++;
+            metrics.peakPixels = Math.max(metrics.peakPixels,
+                [...textures.values()].reduce((pixels, item) => pixels + item.width * item.height, 0));
+            return texture;
+        },
+        remove(key) {
+            assert.ok(textures.delete(key));
+            metrics.released++;
+        },
+    }, add: { container: () => container, image(x, y, key) {
+        return { x, y, key, setOrigin() { return this; }, setScale(scale) { this.scale = scale; return this; },
+            setVisible(visible) { this.visible = visible; metrics.visibilityWrites++; return this; },
+            destroy() { this.destroyed = true; children.delete(this); } };
+    } } };
+    return { details: new TrackDetails(scene, shapes), scene, textures, children, metrics };
+}
+
+test('reflectors bake only near the camera, keep world dimensions and remain visible across block edges', () => {
+    // A fixture centered at x=512 paints into both neighboring blocks.
+    const shapes = [{ type: 'segment', ax: 500, ay: 510, bx: 524, by: 510 }];
+    const fixture = cachedTrack(shapes, { x: 400, y: 400, right: 600, bottom: 600 });
+    const { details, textures, metrics } = fixture;
+    assert.equal(details.cache.size, 4);
+    assert.deepEqual(details.worldObjects, [details.container], 'Future blocks must remain inside the UI-excluded container');
+    assert.equal(details.container.depth, 470);
+    for (const entry of details.cache.values()) {
+        const texture = textures.get(entry.textureKey);
+        assert.equal(texture.width * entry.image.scale, 512);
+        assert.equal(texture.height * entry.image.scale, 512);
+        assert.equal(texture.wrap, 'clamp');
+    }
+    const baked = metrics.baked, writes = metrics.visibilityWrites;
+    for (let frame = 0; frame < 120; frame++) details.update();
+    assert.equal(metrics.baked, baked);
+    assert.equal(metrics.visibilityWrites, writes, 'Steady movement within cached bounds must not revisit every sprite');
+    // Simulate the camera moving/zooming after scene update, before rendering.
+    for (const view of [
+        { x: 464, y: 400, right: 664, bottom: 600 },
+        { x: 336, y: 336, right: 664, bottom: 664 },
+    ]) {
+        for (const [key, chunk] of details.chunks) {
+            if (chunk.cx * 512 >= view.right || (chunk.cx + 1) * 512 <= view.x
+                || chunk.cy * 512 >= view.bottom || (chunk.cy + 1) * 512 <= view.y) continue;
+            assert.equal(details.cache.get(key)?.image.visible, true, 'Newly revealed edges must already be drawable');
+        }
+    }
+});
+
+test('reflector cache stays bounded through full laps, reuses nearby blocks and releases textures on shutdown', () => {
+    const raw = JSON.parse(readFileSync(new URL('../assets/images/tilemaps/pista.json', import.meta.url)));
+    const shapes = raw.layers.filter(layer => ['colisao', 'colisoes pista'].includes(layer.name))
+        .flatMap(layer => wallShapes(layer.objects));
+    const fixture = cachedTrack(shapes, { x: 4400, y: 3000, right: 5800, bottom: 3800 });
+    const { details, scene, textures, children, metrics } = fixture;
+    assert.ok(details.chunks.size > 100, 'Exercise the complete circuit');
+    assert.ok(metrics.baked < 24, 'Entering the race must not bake the entire circuit');
+    for (let lap = 0; lap < 2; lap++) {
+        for (const y of [500, 1500, 2500, 3500, 4500]) {
+            for (const x of [0, 1200, 2400, 3600, 4800, 6000]) {
+                scene.cameras.main.worldView = { x, y, right: x + 1500, bottom: y + 850 };
+                details.update();
+                assert.ok(details.cache.size <= 24);
+                assert.equal(textures.size, details.cache.size);
+                assert.equal(children.size, details.cache.size);
+                const baked = metrics.baked;
+                details.update();
+                assert.equal(metrics.baked, baked, 'A repeated viewport must reuse existing textures');
+                for (const [key, chunk] of details.chunks) {
+                    if (chunk.cx * 512 >= x + 1500 || (chunk.cx + 1) * 512 <= x
+                        || chunk.cy * 512 >= y + 850 || (chunk.cy + 1) * 512 <= y) continue;
+                    assert.equal(details.cache.get(key)?.image.visible, true);
+                }
+            }
+        }
+    }
+    assert.ok(metrics.released > 0);
+    assert.ok(metrics.peakPixels <= 24 * 256 * 256, 'Evict before allocating so region changes keep the 6MiB pixel budget');
+    scene.events.emit('shutdown');
+    assert.equal(textures.size, 0);
+    assert.equal(children.size, 0);
+    assert.equal(details.cache.size, 0);
 });

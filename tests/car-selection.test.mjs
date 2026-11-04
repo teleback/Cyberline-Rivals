@@ -37,13 +37,28 @@ const { default: CarSelection } = await import('../js/scenes/CarSelectionScene.j
 Object.assign(window, { location: { search: '?touch=0' }, matchMedia: () => ({ matches: false }) });
 const { default: Race } = await import('../js/scenes/RaceScene.js');
 
-function textures() {
-    const keys = new Set(CAR_SKINS.map(car => car.source));
+function textures(initialKeys = CAR_SKINS.map(car => car.source)) {
+    const keys = new Set(initialKeys);
     const draws = [];
+    const removed = [];
     return {
         draws,
+        removed,
+        add: key => keys.add(key),
         exists: key => keys.has(key),
-        get: () => ({ getSourceImage: () => ({ width: 6, height: 10 }) }),
+        get(key) {
+            assert.ok(keys.has(key), `Textura disponível: ${key}`);
+            return { getSourceImage: () => ({ width: 6, height: 10 }) };
+        },
+        remove(key) {
+            const skin = CAR_SKINS.find(car => car.source === key && car.source !== car.texture);
+            if (skin) {
+                assert.ok(draws.find(texture => texture.key === skin.texture)?.refreshed,
+                    'A textura final deve estar pronta antes de liberar a origem');
+            }
+            keys.delete(key);
+            removed.push(key);
+        },
         createCanvas(key, width, height) {
             keys.add(key);
             const texture = { key, width, height, refreshed: false };
@@ -95,6 +110,9 @@ test('six skins load real assets and normalize generated frames to preserve coll
     const manager = textures();
     prepareCarSkins({ textures: manager });
     assert.equal(manager.draws.length, 3);
+    assert.deepEqual(manager.removed, CAR_SKINS.filter(car => car.source !== car.texture).map(car => car.source));
+    for (const car of CAR_SKINS) assert.ok(manager.exists(car.texture));
+    for (const car of CAR_SKINS.filter(car => car.source === car.texture)) assert.ok(manager.exists(car.source));
     for (const texture of manager.draws) {
         assert.equal(texture.width, 102);
         assert.equal(texture.height, 166);
@@ -107,6 +125,42 @@ test('six skins load real assets and normalize generated frames to preserve coll
     assert.equal(manager.draws.length, 3);
     assert.equal(getCarSkin('blue').texture, 'car-blue-v2');
     assert.equal(getCarSkin('unknown').texture, 'carro');
+});
+
+test('garage and race reuse normalized skins without reloading discarded source images', () => {
+    const manager = textures([]);
+    const requests = [];
+    const scene = { textures: manager, load: { image(key, path) { requests.push([key, path]); manager.add(key); } } };
+
+    loadCarSkins(scene, '?v=first');
+    assert.equal(requests.length, CAR_SKINS.length);
+    assert.ok(requests.every(([, path]) => path.endsWith('?v=first')));
+    // A second preload before preparation also reuses sources already loaded.
+    loadCarSkins(scene);
+    assert.equal(requests.length, CAR_SKINS.length);
+    prepareCarSkins(scene);
+
+    for (let visit = 0; visit < 3; visit++) {
+        loadCarSkins(scene, '?v=race');
+        prepareCarSkins(scene);
+    }
+    assert.equal(requests.length, CAR_SKINS.length);
+    assert.equal(manager.draws.length, 3);
+    assert.equal(manager.removed.length, 3);
+    for (const car of CAR_SKINS) {
+        assert.ok(manager.exists(car.texture));
+        assert.equal(manager.exists(car.source), car.source === car.texture);
+    }
+
+    // If a normalized texture is evicted, its original can be loaded again.
+    const car = CAR_SKINS.find(car => car.id === 'pink');
+    manager.remove(car.texture);
+    loadCarSkins(scene);
+    assert.equal(requests.length, CAR_SKINS.length + 1);
+    assert.deepEqual(requests.at(-1), [car.source, car.path]);
+    prepareCarSkins(scene);
+    assert.ok(manager.exists(car.texture));
+    assert.equal(manager.exists(car.source), false);
 });
 
 test('carousel wraps both ways, queues rapid navigation and hides offscreen input', () => {

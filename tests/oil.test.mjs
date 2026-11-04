@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { neonOilPixels } from '../js/fx/OilFX.js';
+import OilFX, { neonOilPixels } from '../js/fx/OilFX.js';
 
 globalThis.window = { location: { search: '?touch=0' }, addEventListener() {}, matchMedia: () => ({ matches: false }) };
 globalThis.Phaser = { Physics: { Arcade: { Sprite: class {} } } };
@@ -16,6 +16,34 @@ function carWithVelocity(x, y) {
         oilMinDecel: OIL_SETTINGS.minDecel, oilMinSpeed: OIL_SETTINGS.minSpeed });
     return car;
 }
+
+test('mobile oil uses bounded particles and keeps feedback at lower emission rates', () => {
+    const run = (lite, fps) => {
+        const effects = Object.create(OilFX.prototype);
+        const configs = [];
+        const emitted = [];
+        Object.assign(effects, { lite, worldObjects: [], dropAcc: 0, glintAcc: 0,
+            randomWheel: () => ({ x: 10, y: 20 }),
+            scene: { add: { particles(x, y, key, config) {
+                configs.push(config);
+                const index = configs.length - 1;
+                emitted[index] = 0;
+                return { setDepth() { return this; }, explode(count) { emitted[index] += count; } };
+            } } } });
+        effects.createEmitters();
+        for (let frame = 0; frame < fps; frame++) effects.emitOnOil(1 / fps, 1);
+        return { configs, emitted };
+    };
+    const mobile = run(true, 60), slower = run(true, 30), desktop = run(false, 60);
+    assert.equal(mobile.configs.reduce((sum, config) => sum + config.maxAliveParticles, 0), 66);
+    assert.equal(desktop.configs.reduce((sum, config) => sum + config.maxAliveParticles, 0), 224);
+    for (const index of [0, 2]) {
+        assert.ok(mobile.emitted[index] > 0, 'Oil remains visible while driving');
+        assert.ok(mobile.emitted[index] < desktop.emitted[index] / 2);
+        assert.ok(Math.abs(mobile.emitted[index] - slower.emitted[index]) <= 1,
+            'Visual density stays consistent at lower frame rates');
+    }
+});
 
 test('neon palette preserves every transparent hole and alpha value of the oil silhouette', () => {
     const width = 5, height = 5;

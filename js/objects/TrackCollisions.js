@@ -93,35 +93,46 @@ export function contactAt(shape, x, y, radius, start) {
         const t = Math.max(0, Math.min(1, ((x - shape.ax) * dx + (y - shape.ay) * dy) / (dx * dx + dy * dy)));
         px = shape.ax + t * dx; py = shape.ay + t * dy;
     } else { px = shape.x; py = shape.y; }
-    const dx = x - px, dy = y - py, distance = Math.hypot(dx, dy);
-    const depth = radius + extra - distance;
+    const dx = x - px, dy = y - py, contactRadius = radius + extra;
+    // Most candidates share a spatial cell with the car without touching it.
+    // Reject them before calculating the actual distance for a contact normal.
+    if (dx * dx + dy * dy >= contactRadius * contactRadius) return null;
+    const distance = Math.hypot(dx, dy);
+    const depth = contactRadius - distance;
     if (depth <= 0) return null;
     return { nx: distance > 0.001 ? dx / distance : 1,
         ny: distance > 0.001 ? dy / distance : 0, depth };
 }
 
-export function resolveTravel(index, start, end, velocity, radius, steering = 0, ignoredShapes = null, rotation = null) {
+export function resolveTravel(index, start, end, velocity, radius, steering = 0, ignoredShapes = null, rotation = null, scratch = null) {
     const travelX = end.x - start.x, travelY = end.y - start.y;
     const steps = Math.max(1, Math.ceil(Math.hypot(travelX, travelY) / 8));
     let x = start.x, y = start.y, vx = velocity.x, vy = velocity.y;
     let moveX = travelX / steps, moveY = travelY / steps, normal = null;
-    const hits = new Map();
-    const candidates = new Set();
+    // The live physics system owns its scratch collections. Other callers keep
+    // independent storage, including nested collision queries for rival cars.
+    const hits = scratch?.hits ?? new Map();
+    const candidates = scratch?.candidates ?? new Set();
+    hits.clear();
+    candidates.clear();
     // Três círculos sobrepostos acompanham a carroceria ao girar. O círculo
     // central do Arcade continua sendo usado pelos sensores de óleo/coleta.
     const reach = Number.isFinite(rotation) ? 24 : 0;
     const dx = Math.sin(rotation || 0) * reach, dy = -Math.cos(rotation || 0) * reach;
-    const probes = reach ? [{ x: 0, y: 0 }, { x: dx, y: dy }, { x: -dx, y: -dy }] : [{ x: 0, y: 0 }];
+    const probeCount = reach ? 3 : 1;
     for (let step = 0; step < steps; step++) {
         x += moveX; y += moveY;
         for (let iteration = 0; iteration < 8; iteration++) {
-            let deepest = null, surface = null, probe = probes[0];
+            let deepest = null, surface = null, probeX = 0, probeY = 0;
             for (const shape of index.query(x, y, radius + reach + SKIN, candidates)) {
                 if (ignoredShapes?.has(shape)) continue;
-                for (const offset of shape.type === 'finish-line' ? [probes[0]] : probes) {
-                    const contact = contactAt(shape, x + offset.x, y + offset.y, radius, start);
+                const count = shape.type === 'finish-line' ? 1 : probeCount;
+                for (let probe = 0; probe < count; probe++) {
+                    const offsetX = probe === 1 ? dx : probe === 2 ? -dx : 0;
+                    const offsetY = probe === 1 ? dy : probe === 2 ? -dy : 0;
+                    const contact = contactAt(shape, x + offsetX, y + offsetY, radius, start);
                     if (contact && (!deepest || contact.depth > deepest.depth)) {
-                        deepest = contact; surface = shape; probe = offset;
+                        deepest = contact; surface = shape; probeX = offsetX; probeY = offsetY;
                     }
                 }
             }
@@ -151,7 +162,7 @@ export function resolveTravel(index, start, end, velocity, radius, steering = 0,
                 }
                 const before = hits.get(surface);
                 if (!before || before.speed < -incoming) hits.set(surface, { shape: surface,
-                    speed: -incoming, x: x + probe.x - nx * radius, y: y + probe.y - ny * radius,
+                    speed: -incoming, x: x + probeX - nx * radius, y: y + probeY - ny * radius,
                     nx, ny });
             }
             const intoMove = moveX * nx + moveY * ny;
@@ -173,6 +184,8 @@ export default class TrackCollisions {
                 yMin: scene.finishLineYMin, yMax: scene.finishLineYMax }] : [];
         this.index = new CollisionIndex([...walls, ...barrels, ...finish]);
         this.previous = { x: scene.car.body.center.x, y: scene.car.body.center.y };
+        this.end = { x: this.previous.x, y: this.previous.y };
+        this.scratch = { hits: new Map(), candidates: new Set() };
         this.step = () => this.update();
         // Arcade clears scene.physics.world before user shutdown handlers run.
         const world = scene.physics.world;
@@ -182,20 +195,21 @@ export default class TrackCollisions {
     update() {
         const { car } = this.scene;
         const body = car.body;
-        const end = { x: body.center.x, y: body.center.y };
+        const end = this.end;
+        end.x = body.center.x; end.y = body.center.y;
         if (!car.controlsEnabled) {
-            this.previous = end;
+            this.previous.x = end.x; this.previous.y = end.y;
             return;
         }
         const now = this.scene.time.now;
         const result = resolveTravel(this.index, this.previous, end, body.velocity,
-            body.radius, car.handling.steering, null, car.rotation);
+            body.radius, car.handling.steering, null, car.rotation, this.scratch);
         body.position.x += result.x - end.x;
         body.position.y += result.y - end.y;
         body.updateCenter();
         body.velocity.set(result.vx, result.vy);
         body.speed = Math.hypot(result.vx, result.vy);
-        this.previous = { x: result.x, y: result.y };
+        this.previous.x = result.x; this.previous.y = result.y;
         // Uma raspada fraca durante a recuperação não substitui a normal
         // que sustenta o recuo da primeira batida.
         if (result.normal && !(car.contact?.rebound && now < car.contact.until && !result.hits.length)) car.contact = { ...result.normal,

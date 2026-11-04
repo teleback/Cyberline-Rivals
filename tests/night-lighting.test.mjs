@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { EventEmitter } from 'node:events';
 import NightLighting, { collectNightSources } from '../js/fx/NightLighting.js';
 import StaticNightLights, { indexLightChunks } from '../js/fx/StaticNightLights.js';
 import { carLightPose } from '../js/fx/CarLighting.js';
@@ -215,4 +216,47 @@ test('headlights stay ahead of the car when turning, scaling and driving in ever
         assert.ok(Math.abs(pose.y - (200 + dy)) < 1e-9);
     }
     assert.equal(carLightPose({ x: 100, y: 200, rotation: 0, scaleY: 0.4 }).y, 180.8);
+});
+
+test('mobile light blocks use one quarter of the pixels with the same world coverage and seamless spill', () => {
+    globalThis.Phaser = { Textures: { WrapMode: { CLAMP_TO_EDGE: 'clamp' } }, BlendModes: { SCREEN: 'screen' } };
+    const light = { x: 510, y: 510, radius: 100, color: [100, 200, 255] };
+    function render(lite) {
+        const textures = new Map();
+        const container = { add() {}, setDepth() { return this; }, destroy() {} };
+        const scene = { fx: { lite }, events: new EventEmitter(), textures: {
+            get: () => ({ getSourceImage: () => ({}) }),
+            createCanvas(key, width, height) {
+                const draws = [], scale = [1, 1];
+                const texture = { width, height, draws, getContext: () => ({
+                    scale(x, y) { scale[0] *= x; scale[1] *= y; },
+                    drawImage(_image, x, y, width, height) {
+                        draws.push({ x: x * scale[0], y: y * scale[1], width: width * scale[0], height: height * scale[1] });
+                    },
+                }), refresh() {}, setWrap(wrap) { this.wrap = wrap; } };
+                textures.set(key, texture);
+                return texture;
+            },
+        }, add: { container: () => container, image(x, y, key) {
+            return { x, y, key, setOrigin() { return this; },
+                setScale(scale) { this.scale = scale; return this; },
+                setBlendMode() { return this; }, setVisible() { return this; } };
+        } } };
+        const lighting = new StaticNightLights(scene, { lights: [light], patches: [] }, () => 'glow');
+        lighting.update({ x: 400, y: 400, right: 600, bottom: 600 });
+        assert.equal(lighting.cache.size, 4, 'A light at a join must appear in all four neighboring blocks');
+        for (const { image, textureKey } of lighting.cache.values()) {
+            const texture = textures.get(textureKey);
+            assert.equal(texture.width * image.scale, 512);
+            assert.equal(texture.height * image.scale, 512);
+            assert.equal(texture.wrap, 'clamp', 'Sampling must not leak the opposite edge of a block');
+            const spill = texture.draws[0];
+            assert.equal(image.x + spill.x * image.scale, 410);
+            assert.equal(image.y + spill.y * image.scale, 410);
+            assert.equal(spill.width * image.scale, 200);
+            assert.equal(spill.height * image.scale, 200);
+        }
+        return [...textures.values()].reduce((pixels, texture) => pixels + texture.width * texture.height, 0);
+    }
+    assert.equal(render(true), render(false) / 4);
 });
