@@ -22,9 +22,9 @@ export default class StartCountdown {
         const { width, height } = scene.scale;
 
         this.text = scene.add.text(width / 2, height / 2, '', {
-            fontFamily: 'monospace',
+            fontFamily: '"Orbitron", monospace',
             fontSize: '108px',
-            fontStyle: 'bold',
+            fontStyle: '900',
             color: '#00e5ff',
             stroke: '#0a0c14',
             strokeThickness: 12

@@ -28,6 +28,8 @@ window.onload = async () => {
     // O Phaser desenha texto no canvas: a fonte precisa estar pronta antes.
     try { await document.fonts?.load('16px "Cyber Arcade"'); }
     catch (error) { console.warn('Fonte arcade indisponível; usando monospace.', error); }
+    try { await document.fonts?.load('900 108px "Orbitron"', '321VAI!'); }
+    catch (error) { console.warn('Fonte da largada indisponível; usando monospace.', error); }
     const game = new Game();
     initMobileSupport();
 };
