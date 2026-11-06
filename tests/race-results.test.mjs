@@ -40,9 +40,9 @@ class Object2D extends EventEmitter {
 
 const data = [
     { id: 'a', nick: 'A Vencedora', skin: 'green', tint: 0x88ccff, elapsed: 91000, place: 1,
-        collected: 14, laps: 3, rewards: { collected: 14, laps: 30, finish: 20, victory: 50, total: 114 }, local: false },
+        collected: 14, laps: 3, rewards: { collected: 14, laps: 0, finish: 0, victory: 40, total: 54 }, local: false },
     { id: 'b', nick: 'Eu em Segundo', skin: 'pink', tint: 0xffffff, elapsed: 97500, place: 2,
-        collected: 19, laps: 3, rewards: { collected: 19, laps: 30, finish: 20, victory: 0, total: 69 }, local: true },
+        collected: 19, laps: 3, rewards: { collected: 19, laps: 0, finish: 0, victory: 0, total: 19 }, local: true },
 ];
 
 function setup(width = 960, height = 540) {
@@ -70,8 +70,8 @@ function setup(width = 960, height = 540) {
             const timer = { delay, callback, dueAt: now + delay, remove() { this.removed = true; } };
             timerQueue.push(timer); return timer;
         } },
-        carSkin: 'blue', carTint: 0xeeeeee, finishElapsedMs: 97500, pendingEarned: 69,
-        rewardRules: { lap: 10, finish: 20, victory: 50 },
+        carSkin: 'blue', carTint: 0xeeeeee, finishElapsedMs: 97500, pendingEarned: 19,
+        rewardRules: { lap: 0, finish: 0, victory: 40 },
         computeFinalScore() { return { total: this.pendingEarned }; },
         formatRaceTime: value => value === 91000 ? '01:31.00' : '01:37.50',
         scoreTone: (...args) => tones.push(args), sound: { mute: false },
@@ -221,6 +221,47 @@ test('keyboard confirmation exits after results without responding to held or mu
     results.destroy();
 });
 
+test('winner and runner-up can each redeem exactly their own final brick total', () => {
+    for (const localIndex of [0, 1]) {
+        const { results, scene } = setup();
+        const standings = data.map((driver, index) => ({ ...driver, local: index === localIndex }));
+        const earned = standings[localIndex].rewards.total;
+        results.showResults(standings);
+        assert.equal(results.creditButton.visible, false);
+        results.creditButton.emit('pointerdown');
+        assert.equal(results.creditRedemption, null);
+        results.settleRewards(false);
+        assert.equal(results.creditButton.visible, true);
+        assert.equal(results.creditButton.interactive, true);
+        assert.equal(results.creditLabel.value, `RESGATAR ${earned} COM GOOGLE`);
+        scene.input.keyboard.emit('keydown', { key: 'r' });
+        assert.equal(results.creditRedemption.value, earned);
+        const redemption = results.creditRedemption;
+        results.creditButton.emit('pointerdown');
+        assert.equal(results.creditRedemption, redemption, 'one redemption state per player per race');
+        redemption.claimed = true;
+        redemption.onClaimed();
+        results.settleRewards(false);
+        assert.equal(results.creditLabel.value, 'CRÉDITO RESGATADO');
+        scene.events.emit('shutdown');
+        assert.equal(redemption.destroyed, true);
+    }
+});
+
+test('login dialog keeps keyboard and gamepad confirmations from leaving the result', () => {
+    const { results, scene } = setup();
+    results.showResults(data);
+    results.settleRewards(false);
+    results.creditRedemption = { isOpen: true, destroy() {} };
+    results.padConfirmArmed = true;
+    scene.input.keyboard.emit('keydown', { key: 'Enter' });
+    results.returnButton.emit('pointerdown');
+    scene.events.emit('update');
+    assert.equal(scene.returns, undefined);
+    assert.equal(results.padConfirmArmed, false);
+    results.destroy();
+});
+
 test('gamepad confirmation requires a fresh press after results settle', () => {
     const pad = { connected: true, id: 'test', mapping: 'standard', axes: [0, 0],
         buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) };
@@ -245,11 +286,11 @@ test('pending pickups refresh earned currency while awaiting the rival without r
     results.showWaiting();
     const count = drawn.length;
     assert.equal(results.waitingTime.value, '01:37.50');
-    assert.equal(results.waitingTotal.value, '69');
+    assert.equal(results.waitingTotal.value, '19');
     assert.equal(drawn.find(object => object.type === 'image').texture, 'car-blue-v2');
-    scene.pendingEarned = 71;
+    scene.pendingEarned = 21;
     results.showWaiting();
-    assert.equal(results.waitingTotal.value, '71');
+    assert.equal(results.waitingTotal.value, '21');
     assert.equal(drawn.length, count);
     results.showPodium(data);
     results.showWaiting();
@@ -272,19 +313,19 @@ test('winner celebrates and second place arrives differently; skipping settles r
     scene.sound.mute = true;
     scene.input.emit('pointerdown');
     assert.equal(results.state, 'settled');
-    assert.equal(results.rows[0].rewards.at(-1).value.value, '+50');
+    assert.equal(results.rows[0].rewards.at(-1).value.value, '+40');
     assert.equal(results.rows[1].rewards.at(-1).value.value, '+0');
-    assert.equal(results.rows[0].total.value, '114');
-    assert.equal(results.rows[1].total.value, '69');
+    assert.equal(results.rows[0].total.value, '54');
+    assert.equal(results.rows[1].total.value, '19');
     assert.equal(tones.length, 0, 'muting also covers reward feedback');
     assert.equal(winner.destroyed, undefined);
     assert.equal(runner.destroyed, undefined);
     assert.equal(scene.input.listenerCount('pointerdown'), 0);
     const corrected = structuredClone(data);
     corrected[1].rewards.collected = 18;
-    corrected[1].rewards.total = 68;
+    corrected[1].rewards.total = 18;
     results.showResults(corrected);
-    assert.equal(results.rows[1].total.value, '68');
+    assert.equal(results.rows[1].total.value, '18');
     scene.events.emit('shutdown');
     assert.equal(scene.input.keyboard.listenerCount('keydown'), 0);
     assert.ok(tweenQueue.every(tween => tween.stopped));
@@ -300,7 +341,8 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
     const rows = [...results.rows];
     const flights = rows.flatMap(row => row.flights);
     const brickCount = drawn.filter(object => object.texture === 'tijolinho').length;
-    const expectedTotals = [[14, 19], [44, 49], [64, 69], [114, 69]];
+    const expectedTotals = [[14, 19], [54, 19]];
+    assert.ok(rows.every(row => row.rewards.map(reward => reward.key).join(',') === 'collected,victory'));
 
     advanceTo(0);
     assert.equal(results.subtitle.value, 'COLETA NA PISTA');
@@ -310,10 +352,10 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
     advanceTo(255);
     assert.equal(rows[0].rewards[0].value.value, '+7');
     assert.equal(rows[0].total.value, '7');
-    assert.equal(rows[0].progress.scaleX, 7 / 114);
+    assert.equal(rows[0].progress.scaleX, 7 / 54);
     assert.ok(rows[0].flights.some(brick => brick.alpha > 0 && brick.y !== rows[0].rewards[0].value.y + 5));
 
-    for (let category = 0; category < 4; category++) {
+    for (let category = 0; category < 2; category++) {
         advanceTo(category * 680 + 510);
         assert.equal(results.state, 'counting');
         for (const [index, row] of rows.entries()) {
@@ -325,15 +367,16 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
                 'later categories wait until their turn');
             assert.ok(row.flights.every(brick => brick.visible === false), 'flights hide after landing');
         }
-        if (category === 2) {
-            advanceTo(2040);
+        if (category === 0) {
+            advanceTo(680);
             assert.ok(rows[0].flights.every(brick => brick.visible));
             assert.ok(rows[1].flights.every(brick => !brick.visible), 'zero victory bonus does not launch bricks');
         }
     }
-    advanceTo(2920);
+    advanceTo(1560);
     assert.equal(results.state, 'settled');
     assert.equal(results.returnButton.visible, true);
+    assert.equal(results.footer.value, 'TIJOLINHOS COLETADOS • +40 POR VITÓRIA');
     assert.equal(results.rewardTweens.size, 0);
     assert.equal(results.rewardTimers.size, 0);
     assert.ok(rows.every(row => row.progress.scaleX === 1 && row.highlight.alpha === 0));
@@ -350,9 +393,9 @@ test('skipping during a flight cancels partial counts and keeps the exact final 
     results.showResults(data);
     advanceTo(800);
     const rows = [...results.rows];
-    assert.equal(results.subtitle.value, 'VOLTAS CONCLUÍDAS');
+    assert.equal(results.subtitle.value, 'BÔNUS DO CAMPEÃO');
     assert.ok(rows[0].flights.some(brick => brick.visible && brick.alpha > 0));
-    assert.notEqual(rows[0].total.value, '114');
+    assert.notEqual(rows[0].total.value, '54');
     const interruptedTweens = [...results.rewardTweens];
     const pendingTimers = [...results.rewardTimers];
     scene.input.emit('pointerdown');
@@ -365,7 +408,7 @@ test('skipping during a flight cancels partial counts and keeps the exact final 
     assert.equal(scene.input.listenerCount('pointerdown'), 0);
     const expected = rows.map(row => ({ total: row.total.value, progress: row.progress.scaleX,
         rewards: row.rewards.map(reward => reward.value.value) }));
-    assert.deepEqual(expected.map(row => row.total), ['114', '69']);
+    assert.deepEqual(expected.map(row => row.total), ['54', '19']);
     advanceTo(10000);
     assert.deepEqual(rows.map(row => ({ total: row.total.value, progress: row.progress.scaleX,
         rewards: row.rewards.map(reward => reward.value.value) })), expected,

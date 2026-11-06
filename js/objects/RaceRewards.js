@@ -1,4 +1,4 @@
-export const BRICK_REWARD_RULES = Object.freeze({ lap: 10, finish: 20, victory: 50 });
+export const BRICK_REWARD_RULES = Object.freeze({ lap: 0, finish: 0, victory: 40 });
 
 const whole = value => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 

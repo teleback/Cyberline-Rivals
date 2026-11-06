@@ -96,17 +96,21 @@ para largar e completar as voltas.
 ## Tijolinhos e resultado da corrida
 
 - Cada tijolinho coletado na pista vale **1 tijolinho**. A coleta é compartilhada: quando um piloto pega, o outro não pode pegar o mesmo tijolinho naquela volta.
-- Completar uma volta válida, passando por todos os checkpoints: **+10 tijolinhos**.
-- Terminar as três voltas: **+20 tijolinhos**.
-- Vencer a corrida: **+50 tijolinhos**, somente para o primeiro colocado.
+- Vencer a corrida: **+40 tijolinhos**, somente para o primeiro colocado.
+
+Completar voltas e cruzar a chegada não concedem tijolinhos extras.
 
 Os tijolinhos da pista reaparecem por volta, mantendo um único dono por tijolinho e por volta. As coletas são confirmadas pelo coordenador da partida e sincronizadas entre os dois jogadores, inclusive em caso de mensagens repetidas.
 
 O resultado mostra os dois carros animados, o primeiro e o segundo colocado, o tempo de cada piloto e os tijolinhos ganhos com a coleta e as recompensas. O menor tempo decide o vencedor; não há multiplicador de pontuação por tempo. Os valores das recompensas ficam em `js/objects/RaceRewards.js`.
 
-O pódio tem uma cidade noturna ao fundo, ponte suspensa, refletores e piso em perspectiva. Títulos e números usam a fonte arcade do jogo; as recompensas ficam em placas com cantos recortados e o total em um painel separado. O campeão fica em destaque dourado e faz um giro de comemoração; o vice chega em drift sobre uma plataforma ciano. Os dois carros continuam flutuando sobre os pódios iluminados. A contagem soma coleta, voltas, chegada e vitória em sequência, com tijolinhos voando até o total, barra de progresso e um brilho ao concluir. Toque ou pressione uma tecla para revelar os valores imediatamente.
+O pódio tem uma cidade noturna ao fundo, ponte suspensa, refletores e piso em perspectiva. Títulos e números usam a fonte arcade do jogo; as recompensas ficam em placas com cantos recortados e o total em um painel separado. O campeão fica em destaque dourado e faz um giro de comemoração; o vice chega em drift sobre uma plataforma ciano. Os dois carros continuam flutuando sobre os pódios iluminados. A contagem soma os tijolinhos coletados e o bônus de vitória em sequência, com tijolinhos voando até o total, barra de progresso e um brilho ao concluir. Toque ou pressione uma tecla para revelar os valores imediatamente.
 
 Ao terminar a contagem, aparece **VOLTAR AO MENU**, disponível por toque, clique, Enter, Espaço, Esc ou uma nova confirmação no controle. A saída libera a presença na sala e permite iniciar outra partida sem recarregar a página.
+
+Tanto o **vencedor** quanto o **segundo colocado** podem resgatar seus créditos. Cada jogador vê **RESGATAR <seu total> COM GOOGLE** (clique, toque ou tecla **R**) no próprio navegador e recebe exatamente a quantidade de tijolinhos que ganhou. O jogador entra com sua conta Google e o jogo envia automaticamente um `POST` para `https://feira-de-jogos.dev.br/api/v2/credit`, com o ID token recebido do Google em `Authorization: Bearer <token>` e o JSON `{ "product": "cyberline-rivals", "value": <total de tijolinhos do jogador local> }`. O total é a quantidade coletada na pista, mais **40 tijolinhos** somente para o vencedor. O resgate mostra o andamento, confirma o sucesso e impede novos envios da mesma partida após a confirmação. Em caso de erro, permite tentar novamente; voltar ao menu continua sendo opcional.
+
+O client ID e o `product` ficam em `js/services/CreditService.js`, com um `// TODO` para trocar o identificador do produto. Cadastre a origem do jogo (e a origem local de desenvolvimento) nas **Origens JavaScript autorizadas** desse client ID no Google Cloud. A API deve aceitar o ID token Google no cabeçalho Bearer e permitir CORS da origem do jogo, incluindo `POST`, `Content-Type` e `Authorization`. O login e o envio real dependem dessas configurações externas.
 
 Há **10 salas**, com limite de **2 pilotos por sala** e ocupação ao vivo.
 Salas completas mostram **PARTIDA EM ANDAMENTO** e bloqueiam outra entrada.

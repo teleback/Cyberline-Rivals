@@ -75,6 +75,54 @@ body {
     box-shadow: none;
 }
 
+/* Resgate opcional na tela de resultado, acima do canvas e dos controles. */
+.credit-redemption {
+    box-sizing: border-box;
+    width: min(420px, calc(100vw - 32px));
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+    padding: 24px;
+    border: 1px solid #e9bd77;
+    border-radius: 12px;
+    background: #091324;
+    color: #edf4ff;
+    font: 15px/1.5 'Trebuchet MS', sans-serif;
+    text-align: center;
+    touch-action: pan-y;
+}
+.credit-redemption::backdrop { background: #020611dc; }
+.credit-redemption h2 {
+    margin: 0 0 16px;
+    color: #ffe6a2;
+    font: 12px/1.8 'Cyber Arcade', monospace;
+}
+.credit-redemption .credit-amount {
+    color: #ffdd88;
+    font: 12px/1.8 'Cyber Arcade', monospace;
+}
+.credit-google-button { display: flex; justify-content: center; margin: 18px 0; }
+.credit-status { min-height: 2em; color: #b9f0ff; }
+.credit-redemption button {
+    min-height: 44px;
+    margin: 6px 0 0;
+    padding: 10px 16px;
+    border: 1px solid #69e4f2;
+    border-radius: 6px;
+    background: #102735;
+    color: #c8faff;
+    font: inherit;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+.credit-redemption button:focus-visible { outline: 2px solid #ffdd88; outline-offset: 3px; }
+.credit-redemption button:disabled { opacity: 0.5; cursor: wait; }
+.credit-redemption [hidden] { display: none; }
+@media (max-height: 400px) {
+    .credit-redemption { padding: 14px 20px; }
+    .credit-redemption h2, .credit-redemption p { margin: 6px 0; }
+    .credit-google-button { margin: 12px 0; }
+}
+
 
 /* =========================================================================
    CELULAR / TABLET

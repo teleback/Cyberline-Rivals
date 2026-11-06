@@ -1,13 +1,15 @@
 import { getCarSkin } from '../objects/CarSkins.js';
 import { readGamepad } from '../input/GamepadInput.js';
 import drawResultsBackdrop from './ResultsBackdrop.js';
+import CreditRedemption from './CreditRedemption.js';
+import { BRICK_REWARD_RULES } from '../objects/RaceRewards.js';
 
 const FONT = '"Trebuchet MS", sans-serif';
 const ARCADE = '"Cyber Arcade", monospace';
 const GOLD = 0xffd16b;
 const SILVER = 0x91deef;
 const DEPTH = 8200;
-const REWARD_KEYS = ['collected', 'laps', 'finish', 'victory'];
+const REWARD_KEYS = ['collected', 'victory'];
 const REWARD_STEP_MS = 680;
 const amount = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
 const number = value => amount(value).toLocaleString('pt-BR');
@@ -46,11 +48,16 @@ export default class RaceResults {
             this.settleRewards();
         };
         this.onReturnKey = event => {
-            if (event === this.skipEvent || event?.repeat) return;
+            if (event === this.skipEvent || event?.repeat || this.creditRedemption?.isOpen) return;
+            if (event?.key?.toLowerCase() === 'r') this.redeemCredits();
             if (['Enter', ' ', 'Escape'].includes(event?.key)) this.returnToMenu();
         };
         this.onUpdate = () => {
             if (this.state !== 'settled') return;
+            if (this.creditRedemption?.isOpen) {
+                this.padConfirmArmed = false;
+                return;
+            }
             const pad = readGamepad();
             if (!pad.any) this.padConfirmArmed = true;
             else if (this.padConfirmArmed) this.returnToMenu();
@@ -138,6 +145,8 @@ export default class RaceResults {
 
     clear() {
         this.cancelRewards();
+        this.creditRedemption?.destroy();
+        this.creditRedemption = null;
         this.scene.input?.keyboard?.off('keydown', this.onReturnKey);
         this.scene.events.off('update', this.onUpdate);
         this.tweens.forEach(tween => tween.stop?.());
@@ -154,6 +163,9 @@ export default class RaceResults {
         this.returnButton = null;
         this.returnLabel = null;
         this.returnPlate = null;
+        this.creditButton = null;
+        this.creditLabel = null;
+        this.creditPlate = null;
     }
 
     background() {
@@ -305,9 +317,8 @@ export default class RaceResults {
         const rewardTop = y + height * (stacked ? compact ? 0.62 : 0.57 : 0.37);
         const spacing = stacked ? height * (compact ? 0.047 : 0.055) : height * 0.085;
         const rewardSize = stacked ? compact ? 8 : 10 : compact ? 10 : 12;
-        const lapReward = s.rewardRules?.lap ?? 10;
-        const labels = ['Coletados', `Voltas (${amount(driver.laps)} ×${lapReward})`, 'Chegada', 'Vitória'];
-        const rewardBottom = rewardTop + spacing * 3 + rewardSize + 7;
+        const labels = ['Coletados', 'Vitória'];
+        const rewardBottom = rewardTop + spacing * (REWARD_KEYS.length - 1) + rewardSize + 7;
         this.plate(rewardLeft - 9, rewardTop - (stacked ? 4 : 14), rewardRight - rewardLeft + 18,
             rewardBottom - rewardTop + (stacked ? 0 : 20), accent,
             { fill: 0x060e1d, alpha: 0.8, border: 0.15, cut: stacked ? 5 : 8 });
@@ -317,7 +328,8 @@ export default class RaceResults {
         const rewards = labels.map((label, index) => {
             const labelObject = this.text(rewardLeft, rewardTop + index * spacing, label, rewardSize, '#bdccdf');
             const valueObject = this.arcade(rewardRight, rewardTop + index * spacing, '+0',
-                stacked ? compact ? 7 : 8 : compact ? 8 : 10, index === 3 && winner ? '#ffdd88' : '#e2ebf8')
+                stacked ? compact ? 7 : 8 : compact ? 8 : 10,
+                REWARD_KEYS[index] === 'victory' && winner ? '#ffdd88' : '#e2ebf8')
                 .setOrigin(1, 0);
             valueObject.setAlpha(0.25);
             return { key: REWARD_KEYS[index], label: labelObject, value: valueObject };
@@ -352,12 +364,24 @@ export default class RaceResults {
 
     createReturnButton() {
         const { width, height } = this.layout;
-        const buttonWidth = Math.min(280, width - 32);
-        this.returnPlate = this.plate((width - buttonWidth) / 2, height - 50, buttonWidth, 44, SILVER,
+        const gap = 12;
+        const buttonWidth = Math.min(280, (width - 32 - gap) / 2);
+        const left = (width - buttonWidth * 2 - gap) / 2;
+        this.creditPlate = this.plate(left, height - 50, buttonWidth, 44, GOLD,
+            { fill: 0x31251f, border: 0.65, cut: 12, depth: DEPTH + 3 }).setVisible(false);
+        this.creditButton = this.register(this.scene.add.rectangle(left + buttonWidth / 2, height - 28,
+            buttonWidth, 44, GOLD, 0), DEPTH + 3).setVisible(false);
+        this.creditLabel = this.arcade(left + buttonWidth / 2, height - 28, 'RESGATAR COM GOOGLE', 7, '#ffe6a2')
+            .setOrigin(0.5).setDepth(DEPTH + 4).setVisible(false);
+        this.creditButton.on('pointerdown', () => this.redeemCredits());
+        this.creditButton.on('pointerover', () => this.creditButton.setFillStyle(GOLD, 0.1));
+        this.creditButton.on('pointerout', () => this.creditButton.setFillStyle(GOLD, 0));
+        const returnX = left + buttonWidth + gap;
+        this.returnPlate = this.plate(returnX, height - 50, buttonWidth, 44, SILVER,
             { fill: 0x102735, border: 0.55, cut: 12, depth: DEPTH + 3 }).setVisible(false);
-        this.returnButton = this.register(this.scene.add.rectangle(width / 2, height - 28,
+        this.returnButton = this.register(this.scene.add.rectangle(returnX + buttonWidth / 2, height - 28,
             buttonWidth, 44, 0x69e4f2, 0), DEPTH + 3);
-        this.returnLabel = this.arcade(width / 2, height - 28, '< VOLTAR AO MENU', 8, '#c8faff')
+        this.returnLabel = this.arcade(returnX + buttonWidth / 2, height - 28, '< VOLTAR AO MENU', 8, '#c8faff')
             .setOrigin(0.5).setDepth(DEPTH + 4);
         this.returnButton.setVisible(false);
         this.returnLabel.setVisible(false);
@@ -367,9 +391,24 @@ export default class RaceResults {
     }
 
     returnToMenu() {
-        if (this.destroyed || this.returning || this.state !== 'settled') return;
+        if (this.destroyed || this.returning || this.state !== 'settled' || this.creditRedemption?.isOpen) return;
         this.returning = true;
         this.scene.returnToMenu();
+    }
+
+    redeemCredits() {
+        if (this.destroyed || this.returning || this.state !== 'settled') return;
+        const value = this.localCreditValue();
+        if (value <= 0) return;
+        this.creditRedemption ??= new CreditRedemption(value, () => {
+            this.creditLabel?.setText('CRÉDITO RESGATADO');
+        });
+        this.creditRedemption.open();
+    }
+
+    localCreditValue() {
+        // Both places may redeem. Each browser redeems only its own player's total.
+        return amount(this.results?.find(driver => driver.local)?.rewards?.total);
     }
 
     animateCar(row, index) {
@@ -439,7 +478,7 @@ export default class RaceResults {
     }
 
     countReward(rewardIndex) {
-        const captions = ['COLETA NA PISTA', 'VOLTAS CONCLUÍDAS', 'BÔNUS DE CHEGADA', 'BÔNUS DO CAMPEÃO'];
+        const captions = ['COLETA NA PISTA', 'BÔNUS DO CAMPEÃO'];
         this.subtitle.setText(captions[rewardIndex]);
         this.rows.forEach((row, index) => {
             const reward = row.rewards[rewardIndex];
@@ -516,11 +555,19 @@ export default class RaceResults {
             }
         });
         this.subtitle.setText('TODOS OS GANHOS EM TIJOLINHOS');
-        const rules = this.scene.rewardRules || { lap: 10, finish: 20, victory: 50 };
-        this.footer.setText(`+${rules.lap} POR VOLTA • +${rules.finish} CHEGADA • +${rules.victory} VITÓRIA`);
+        const rules = this.scene.rewardRules || BRICK_REWARD_RULES;
+        this.footer.setText(`TIJOLINHOS COLETADOS • +${rules.victory} POR VITÓRIA`);
         this.returnButton?.setVisible(true).setInteractive({ useHandCursor: true });
         this.returnLabel?.setVisible(true);
         this.returnPlate?.setVisible(true);
+        const creditValue = this.localCreditValue();
+        const canRedeem = creditValue > 0;
+        this.creditButton?.setVisible(canRedeem);
+        if (canRedeem) this.creditButton?.setInteractive({ useHandCursor: true });
+        this.creditLabel?.setText(this.creditRedemption?.claimed ? 'CRÉDITO RESGATADO'
+            : `RESGATAR ${number(creditValue)} COM GOOGLE`);
+        this.creditLabel?.setVisible(canRedeem);
+        this.creditPlate?.setVisible(canRedeem);
         this.scene.input?.keyboard?.off('keydown', this.onReturnKey);
         this.scene.input?.keyboard?.on('keydown', this.onReturnKey);
         this.scene.events.off('update', this.onUpdate);
