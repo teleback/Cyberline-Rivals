@@ -38,6 +38,7 @@ export default class BrickCollectibles {
             this.visuals.add([glow, sprite]);
             return { ...spot, glow, sprite, phase: index * 0.73, collected: false };
         });
+        this.totalAvailable = this.bricks.length * (scene.totalLaps ?? 3);
         this.burst = scene.add.particles(0, 0, 'brick-spark', {
             lifespan: { min: 200, max: 420 }, speed: { min: 40, max: 120 },
             scale: { start: 1, end: 0 }, alpha: { start: 0.9, end: 0 },

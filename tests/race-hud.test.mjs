@@ -175,17 +175,16 @@ test('Tijolinhos count responds immediately with a reusable collection pulse', (
     assert.equal(objects.length, objectCount);
 });
 
-test('HUD includes lap and finish rewards in the tijolinho counter', () => {
+test('HUD keeps the raw collected count separate from converted race rewards', () => {
     const { hud, scene } = setupHUD();
     scene.brickCount = 4;
-    let earned = 14;
-    scene.computeFinalScore = () => ({ total: earned });
+    scene.computeFinalScore = () => ({ total: 25 });
     hud.updateBricks(1100);
-    assert.equal(scene.brickCountLabel.value, '14');
-    assert.equal(hud.brickGain.value, '+14');
-    earned += 20;
+    assert.equal(scene.brickCountLabel.value, '4');
+    assert.equal(hud.brickGain.value, '+4');
+    scene.brickCount = 6;
     hud.updateBricks(1200);
-    assert.equal(scene.brickCountLabel.value, '34');
-    assert.equal(hud.brickGain.value, '+20');
-    assert.equal(scene.brickCount, 4, 'reward display preserves the confirmed pickup count');
+    assert.equal(scene.brickCountLabel.value, '6');
+    assert.equal(hud.brickGain.value, '+2');
+    assert.equal(scene.computeFinalScore().total, 25, 'the payout conversion does not change pickup count');
 });

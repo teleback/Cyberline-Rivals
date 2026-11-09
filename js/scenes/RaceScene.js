@@ -22,7 +22,7 @@ import BoostFX from "../fx/BoostFX.js";
 import RaceHUD from "../fx/RaceHUD.js";
 import BrickCollectibles from "../objects/BrickCollectibles.js";
 import RaceResults from "../fx/RaceResults.js";
-import { BRICK_REWARD_RULES, computeBrickRewards } from "../objects/RaceRewards.js";
+import { BRICK_REWARD_RULES, computeBrickRewards, getCollectionMultiplier } from "../objects/RaceRewards.js";
 import {
   showTouchControls,
   hideTouchControls,
@@ -1679,9 +1679,12 @@ class Race extends Phaser.Scene {
 
     this.raceResultsData = results.map((driver, index) => {
       const collected = this.brickCollectibles?.countFor(driver.id) || 0;
+      const totalAvailable = this.brickCollectibles?.totalAvailable || 0;
       const place = index + 1;
-      return { ...driver, collected, place,
-        rewards: computeBrickRewards({ collected, laps: driver.laps, finished: true, place }, this.rewardRules) };
+      return { ...driver, collected, collectionMultiplier: getCollectionMultiplier(totalAvailable), place,
+        rewards: computeBrickRewards({ collected,
+          totalAvailable,
+          laps: driver.laps, finished: true, place }, this.rewardRules) };
     });
     this.finishPlace = this.raceResultsData.find(driver => driver.local).place;
     this.championNick = this.raceResultsData[0].nick;
@@ -1694,6 +1697,7 @@ class Race extends Phaser.Scene {
 
   computeFinalScore() {
     return computeBrickRewards({ collected: this.brickCount || 0,
+      totalAvailable: this.brickCollectibles?.totalAvailable || 0,
       laps: this.completedLaps || 0, finished: this.raceFinished, place: this.finishPlace }, this.rewardRules);
   }
 

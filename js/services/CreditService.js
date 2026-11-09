@@ -1,7 +1,7 @@
 export const GOOGLE_CLIENT_ID = '331191695151-ku8mdhd76pc2k36itas8lm722krn0u64.apps.googleusercontent.com';
 export const CREDIT_ENDPOINT = 'https://feira-de-jogos.dev.br/api/v2/credit';
 // TODO: alterar o product para o identificador definitivo do jogo na API.
-export const CREDIT_PRODUCT = 'cyberline-rivals';
+export const CREDIT_PRODUCT = '82';
 
 let libraryPromise;
 let initializedIdentity;

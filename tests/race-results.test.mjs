@@ -40,9 +40,11 @@ class Object2D extends EventEmitter {
 
 const data = [
     { id: 'a', nick: 'A Vencedora', skin: 'green', tint: 0x88ccff, elapsed: 91000, place: 1,
-        collected: 14, laps: 3, rewards: { collected: 14, laps: 0, finish: 0, victory: 40, total: 54 }, local: false },
+        collected: 56, collectionMultiplier: 0.25, laps: 3,
+        rewards: { collected: 14, laps: 0, finish: 0, victory: 40, total: 54 }, local: false },
     { id: 'b', nick: 'Eu em Segundo', skin: 'pink', tint: 0xffffff, elapsed: 97500, place: 2,
-        collected: 19, laps: 3, rewards: { collected: 19, laps: 0, finish: 0, victory: 0, total: 19 }, local: true },
+        collected: 76, collectionMultiplier: 0.25, laps: 3,
+        rewards: { collected: 19, laps: 0, finish: 0, victory: 0, total: 19 }, local: true },
 ];
 
 function setup(width = 960, height = 540) {
@@ -322,6 +324,7 @@ test('winner celebrates and second place arrives differently; skipping settles r
     assert.equal(runner.destroyed, undefined);
     assert.equal(scene.input.listenerCount('pointerdown'), 0);
     const corrected = structuredClone(data);
+    corrected[1].collected = 72;
     corrected[1].rewards.collected = 18;
     corrected[1].rewards.total = 18;
     results.showResults(corrected);
@@ -350,7 +353,7 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
     assert.ok(rows.every(row => row.highlight.alpha === 1));
     assert.equal(results.returnButton.visible, false);
     advanceTo(255);
-    assert.equal(rows[0].rewards[0].value.value, '+7');
+    assert.equal(rows[0].rewards[0].value.value, '56 x 0,25 = +7');
     assert.equal(rows[0].total.value, '7');
     assert.equal(rows[0].progress.scaleX, 7 / 54);
     assert.ok(rows[0].flights.some(brick => brick.alpha > 0 && brick.y !== rows[0].rewards[0].value.y + 5));
@@ -362,7 +365,9 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
             const total = expectedTotals[category][index];
             assert.equal(row.total.value, String(total));
             assert.equal(row.progress.scaleX, total / data[index].rewards.total);
-            assert.equal(row.rewards[category].value.value, `+${data[index].rewards[row.rewards[category].key]}`);
+            assert.equal(row.rewards[category].value.value, category === 0
+                ? `${data[index].collected} x 0,25 = +${data[index].rewards.collected}`
+                : `+${data[index].rewards[row.rewards[category].key]}`);
             assert.ok(row.rewards.slice(category + 1).every(reward => reward.value.value === '+0'),
                 'later categories wait until their turn');
             assert.ok(row.flights.every(brick => brick.visible === false), 'flights hide after landing');
@@ -377,6 +382,8 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
     assert.equal(results.state, 'settled');
     assert.equal(results.returnButton.visible, true);
     assert.equal(results.footer.value, 'TIJOLINHOS COLETADOS • +40 POR VITÓRIA');
+    assert.equal(rows[0].rewards[0].value.value, '56 x 0,25 = +14');
+    assert.equal(rows[1].rewards[0].value.value, '76 x 0,25 = +19');
     assert.equal(results.rewardTweens.size, 0);
     assert.equal(results.rewardTimers.size, 0);
     assert.ok(rows.every(row => row.progress.scaleX === 1 && row.highlight.alpha === 0));
@@ -385,6 +392,19 @@ test('reward categories accumulate in order, finish naturally, and reuse the fly
     advanceTo(4000);
     assert.ok(rows.every(row => row.totalFlash.alpha === 0 && row.total.scaleX === 1 && row.total.scaleY === 1),
         'the final shine and number pulse settle back to their resting appearance');
+    results.destroy();
+});
+
+test('collection multiplier is rounded to three decimal places in the result', () => {
+    const { results } = setup();
+    const fractionalMultiplier = data.map((driver, index) => ({
+        ...driver,
+        collected: index === 0 ? 216 : 432,
+        collectionMultiplier: 0.1157407407,
+    }));
+    results.showResults(fractionalMultiplier);
+    results.settleRewards(false);
+    assert.equal(results.rows[0].rewards[0].value.value, '216 x 0,116 = +14');
     results.destroy();
 });
 

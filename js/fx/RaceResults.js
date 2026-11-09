@@ -13,6 +13,11 @@ const REWARD_KEYS = ['collected', 'victory'];
 const REWARD_STEP_MS = 680;
 const amount = value => Number.isFinite(Number(value)) ? Math.max(0, Math.floor(Number(value))) : 0;
 const number = value => amount(value).toLocaleString('pt-BR');
+const collectionEquation = (driver, payout) => {
+    const multiplier = Number(driver.collectionMultiplier) || 0;
+    const formattedMultiplier = multiplier.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+    return `${number(driver.collected)} x ${formattedMultiplier} = +${number(payout)}`;
+};
 
 // A narrow screen keeps the rewards below the cars; landscape has room
 // for rewards alongside them. All positions stay inside the two cards.
@@ -317,7 +322,7 @@ export default class RaceResults {
         const rewardTop = y + height * (stacked ? compact ? 0.62 : 0.57 : 0.37);
         const spacing = stacked ? height * (compact ? 0.047 : 0.055) : height * 0.085;
         const rewardSize = stacked ? compact ? 8 : 10 : compact ? 10 : 12;
-        const labels = ['Coletados', 'Vitória'];
+        const labels = ['Coleta', 'Vitória'];
         const rewardBottom = rewardTop + spacing * (REWARD_KEYS.length - 1) + rewardSize + 7;
         this.plate(rewardLeft - 9, rewardTop - (stacked ? 4 : 14), rewardRight - rewardLeft + 18,
             rewardBottom - rewardTop + (stacked ? 0 : 20), accent,
@@ -328,7 +333,7 @@ export default class RaceResults {
         const rewards = labels.map((label, index) => {
             const labelObject = this.text(rewardLeft, rewardTop + index * spacing, label, rewardSize, '#bdccdf');
             const valueObject = this.arcade(rewardRight, rewardTop + index * spacing, '+0',
-                stacked ? compact ? 7 : 8 : compact ? 8 : 10,
+                stacked ? compact ? 5 : 6 : compact ? 6 : 7,
                 REWARD_KEYS[index] === 'victory' && winner ? '#ffdd88' : '#e2ebf8')
                 .setOrigin(1, 0);
             valueObject.setAlpha(0.25);
@@ -492,7 +497,8 @@ export default class RaceResults {
             if (target > 0) this.flyBricks(row, reward);
             this.tween({ targets: counter, value: target, duration: 510, ease: 'Cubic.easeOut',
                 onUpdate: tween => {
-                    reward.value.setText(`+${number(counter.value)}`);
+                    reward.value.setText(reward.key === 'collected'
+                        ? collectionEquation(row.driver, counter.value) : `+${number(counter.value)}`);
                     this.updateTotal(row, before + amount(counter.value));
                     const tick = Math.floor(tween.progress * 5);
                     if (!index && target > 0 && tick !== previousTick) {
@@ -501,7 +507,8 @@ export default class RaceResults {
                     }
                 },
                 onComplete: () => {
-                    reward.value.setText(`+${number(target)}`);
+                    reward.value.setText(reward.key === 'collected'
+                        ? collectionEquation(row.driver, target) : `+${number(target)}`);
                     this.updateTotal(row, before + target);
                     this.tween({ targets: row.highlight, alpha: 0, duration: 130 }, true);
                 } }, true);
@@ -539,8 +546,9 @@ export default class RaceResults {
         this.state = 'settled';
         this.rows.forEach((row, index) => {
             row.driver = this.results[index];
-            row.rewards.forEach(reward => reward.value.setAlpha(1)
-                .setText(`+${number(row.driver.rewards[reward.key])}`));
+            row.rewards.forEach(reward => reward.value.setAlpha(1).setText(reward.key === 'collected'
+                ? collectionEquation(row.driver, row.driver.rewards[reward.key])
+                : `+${number(row.driver.rewards[reward.key])}`));
             row.total.setAlpha(1).setText(number(row.driver.rewards.total));
             row.progress.scaleX = 1;
             row.highlight.setAlpha(0);

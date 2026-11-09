@@ -221,7 +221,7 @@ export default class RaceHUD {
     }
 
     earnedBricks() {
-        const count = this.scene.computeFinalScore?.().total ?? this.scene.brickCount;
+        const count = this.scene.brickCount;
         return Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0;
     }
 

@@ -115,12 +115,13 @@ test('waiting view receives the personal time and all earned tijolinhos', () => 
     let calls = 0;
     Object.assign(race, {
         brickCount: 17, completedLaps: 3, raceFinished: true, finishPlace: null,
+        brickCollectibles: { totalAvailable: 17 },
         finishElapsedMs: 180000,
         raceResults: { showWaiting() {
             calls++;
             assert.equal(race.formatRaceTime(race.finishElapsedMs), '03:00.00');
             assert.deepEqual(race.computeFinalScore(), {
-                collected: 17, laps: 0, finish: 0, victory: 0, total: 17,
+                collected: 25, laps: 0, finish: 0, victory: 0, total: 25,
             });
         } },
     });
@@ -138,7 +139,8 @@ function podiumScene({ elapsed = 160000, opponentElapsed = 170000, pending = fal
         brickCount: 17, completedLaps: 3, finishElapsedMs: elapsed,
         remotePlayers: { b: { id: 'b', nick: 'RIVAL', skin: 'blue', tint: 0xabcdef,
             roundId: opponentRound, completedLaps: 3, finished: true, finishElapsedMs: opponentElapsed } },
-        brickCollectibles: { hasPendingClaims: () => pending, countFor: id => id === 'a' ? 17 : 9 },
+        brickCollectibles: { totalAvailable: 17, hasPendingClaims: () => pending,
+            countFor: id => id === 'a' ? 17 : 9 },
         raceResults: { showPodium: data => calls.podium.push(data), showResults: data => calls.results.push(data) },
         publishNetworkState() { calls.publications++; },
         time: { delayedCall(ms, fn) { calls.timers.push({ ms, fn }); } },
@@ -151,27 +153,28 @@ test('both podium places contain the actual skins, times, and tijolinho-only rew
     race.tryResolvePodium();
     assert.equal(race.finishPlace, 1);
     assert.equal(race.podiumShown, true);
-    assert.equal(race.finalScoreData.total, 57);
+    assert.equal(race.finalScoreData.total, 50);
+    assert.equal(race.raceResultsData[0].collectionMultiplier, 25 / 17);
     assert.deepEqual(race.raceResultsData.map(driver => ({ id: driver.id, place: driver.place,
         elapsed: driver.elapsed, skin: driver.skin, rewards: driver.rewards })), [
         { id: 'a', place: 1, elapsed: 160000, skin: 'pink',
-            rewards: { collected: 17, laps: 0, finish: 0, victory: 40, total: 57 } },
+            rewards: { collected: 25, laps: 0, finish: 0, victory: 25, total: 50 } },
         { id: 'b', place: 2, elapsed: 170000, skin: 'blue',
-            rewards: { collected: 9, laps: 0, finish: 0, victory: 0, total: 9 } },
+            rewards: { collected: 13, laps: 0, finish: 0, victory: 0, total: 13 } },
     ]);
     assert.equal(calls.podium.length, 1);
     calls.timers[0].fn();
     assert.equal(calls.results.length, 1);
     race.tryResolvePodium();
     assert.equal(calls.podium.length, 1);
-    assert.equal(race.computeFinalScore().total, 57, 'repeated packets never repeat victory rewards');
+    assert.equal(race.computeFinalScore().total, 50, 'repeated packets never repeat victory rewards');
 });
 
 test('second place never gets the victory bonus; equal times use the same ID tiebreak on both peers', () => {
     const { race } = podiumScene({ elapsed: 170000, opponentElapsed: 160000 });
     race.tryResolvePodium();
     assert.equal(race.finishPlace, 2);
-    assert.equal(race.finalScoreData.total, 17);
+    assert.equal(race.finalScoreData.total, 25);
     assert.equal(race.finalScoreData.victory, 0);
     const tie = podiumScene({ elapsed: 160000, opponentElapsed: 160000 }).race;
     tie.tryResolvePodium();
