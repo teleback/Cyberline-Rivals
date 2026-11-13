@@ -7,14 +7,14 @@
 //  - fica nos cantos da TELA, mesmo quando o jogo (800x450) tem tarjas
 //    pretas nas laterais.
 //
-// O joystick indica uma direção na tela, independente da orientação do carro.
-// Qualquer direção acelera; baixo aponta para baixo, sem engatar freio/ré.
-// Centralizar ou soltar encerra a aceleração. Os pedais continuam independentes.
+// O joystick indica apenas a direção na tela, independentemente da rotação
+// do carro. O movimento depende de ACELERAR ou TURBO; FREIO/RÉ é separado.
+// Centralizar ou soltar o direcional para o giro sem acelerar sozinho.
 //
 // Só aparece em aparelho de toque. Para testar no computador, abra o jogo
 // com ?touch=1 na URL (e ?touch=0 força desligado).
 
-const state = { left: false, right: false, up: false, down: false,
+const state = { left: false, right: false, down: false,
     turbo: false, accelerate: false, pedalBrake: false, steering: 0, heading: null };
 
 // Zona neutra radial pequena, com histerese para filtrar tremores no centro.
@@ -70,7 +70,7 @@ function releaseStick() {
     const pointer = stickPointer;
     stickPointer = null;
     if (pointer !== null && zone?.hasPointerCapture?.(pointer)) zone.releasePointerCapture(pointer);
-    state.left = state.right = state.up = state.down = false;
+    state.left = state.right = state.down = false;
     state.steering = 0;
     state.heading = null;
     if (knob) knob.style.transform = '';
@@ -99,7 +99,7 @@ function releaseAll() {
 function updateFeedback() {
     if (!stick) return;
     const braking = state.down || state.pedalBrake;
-    stick.classList.toggle('tc-throttle', (state.up || state.accelerate || state.turbo) && !braking);
+    stick.classList.toggle('tc-throttle', (state.accelerate || state.turbo) && !braking);
     stick.classList.toggle('tc-braking', braking);
 }
 
@@ -150,8 +150,8 @@ function updateStick(e) {
         dx *= radius / dist;
         dy *= radius / dist;
     }
-    // O desenho fica dentro do anel; o curso lógico continua independente
-    // por eixo para acelerar e virar ao mesmo tempo.
+    // O desenho fica dentro do anel; a direção não ativa o acelerador.
+    // O polegar direito comanda acelerar, frear e turbo separadamente.
     const visualScale = visualTravel / radius;
     knob.style.transform = `translate(${dx * visualScale}px, ${dy * visualScale}px)`;
 
@@ -161,7 +161,6 @@ function updateStick(e) {
     state.steering = active ? clamp(rawX / radius, -1, 1) : 0;
     state.left = active && rawX < 0;
     state.right = active && rawX > 0;
-    state.up = active;
     state.down = false;
     updateFeedback();
 }
@@ -171,7 +170,7 @@ function build() {
     root.id = 'touch-controls';
     root.hidden = true;
     root.innerHTML = `
-        <div class="tc-zone" role="group" aria-label="Direção: aponte o joystick para onde quer ir; solte para parar de acelerar">
+        <div class="tc-zone" role="group" aria-label="Direção: aponte o joystick para onde quer virar; use ACELERAR ou TURBO para andar">
             <div class="tc-stick"><span class="tc-arrow tc-arrow-left" aria-hidden="true">←</span><span class="tc-arrow tc-arrow-right" aria-hidden="true">→</span><div class="tc-knob"></div></div>
         </div>
         <div class="tc-pedals">
@@ -258,9 +257,9 @@ export function readTouch() {
         right: state.right,
         steering: state.steering,
         heading: state.heading,
-        // O botão TURBO já acelera: o Car só liga o turbo com o acelerador
-        // apertado, e o polegar direito não deve precisar de dois botões.
-        up: (state.up || state.accelerate || state.turbo) && !(state.down || state.pedalBrake),
+        // Direcionar sozinho não acelera: só os pedais ACELERAR e TURBO
+        // fornecem tração. FREIO/RÉ tem prioridade sobre ambos.
+        up: (state.accelerate || state.turbo) && !(state.down || state.pedalBrake),
         down: state.down || state.pedalBrake,
         turbo: state.turbo,
         mobile: !!root && !root.hidden,

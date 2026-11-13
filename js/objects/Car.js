@@ -2,6 +2,20 @@ import { HANDLING, MOBILE_HANDLING, createHandlingState, stepHandling } from './
 import { readGamepad, calibrateIfNeeded } from '../input/GamepadInput.js';
 import { readTouch } from '../input/TouchControls.js';
 
+// Igual ao joystick do celular: a direção é absoluta na tela, não uma
+// curva relativa ao ângulo atual do carro. Aceita diagonais sem aumentar a
+// aceleração e resolve as teclas opostas no eixo correspondente.
+function screenHeading(left, right, up, down) {
+    const x = Number(right) - Number(left);
+    const y = Number(down) - Number(up);
+    return x || y ? Math.atan2(x, -y) : null;
+}
+
+// Teclas e D-pad saltam entre 8 ângulos; o dedo no joystick percorre os
+// ângulos intermediários. Esta rampa reproduz esse movimento contínuo sem
+// alterar a física nem a resposta direta do joystick de toque.
+const DIGITAL_HEADING_RESPONSE = 9; // 1/s; resposta independente dos FPS
+
 export const OIL_SETTINGS = { entryRetention: 0.65, speedRetention: 0.22, minDecel: 160, minSpeed: 70 };
 
 export default class Car extends Phaser.Physics.Arcade.Sprite {
@@ -54,6 +68,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this.stoppedThreshold = HANDLING.stoppedThreshold;
         this.reverseMaxSpeed = HANDLING.reverseMaxSpeed;
         this.handling = createHandlingState();
+        this.digitalHeading = null; // alvo suavizado apenas para teclado / D-pad
         this.isDrifting = false;
         this.isBraking = false;
         this.tireSlip = 0;
@@ -106,16 +121,21 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         this._turboBlockedUntil = 0;
 
         // Boosts desenhados na camada "Cyber placa" do tilemap.
-        this.trackBoostMultiplier = 1.45;
+        this.trackBoostMultiplier = 1.52; // placa boost: +52% sobre a velocidade normal
         this.trackBoostDuration = 1400;
         this.trackBoostUntil = 0;
         this.isTrackBoostActive = false;
 
         this.keyShift = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
+        // Como as quatro setas agora indicam para onde ir, os comandos de
+        // pedal no teclado ficam separados do direcional.
+        this.keyAccelerate = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+        this.keyBrake = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        this.keyBrakeS = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S);
 
         this.cursors = scene.input.keyboard.createCursorKeys();
 
-        // Primeira vez com controle conectado: pede pra apertar L e R.
+        // SNES usa B para acelerar, Y para turbo e A para freio/ré.
         calibrateIfNeeded();
 
         // Trava geral: usada pelo CarDropIn pra impedir o jogador de acelerar
@@ -162,6 +182,7 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
             const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
             this.updateTurbo(time, Math.min(delta / 1000, 0.1), false, forward);
             this.handling = createHandlingState();
+            this.digitalHeading = null;
             this.isDrifting = false;
             this.isBraking = false;
             this.tireSlip = 0;
@@ -179,13 +200,42 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
 
         const pad = readGamepad();
         const touch = readTouch();
-        const brake = this.cursors.down.isDown || pad.down || touch.down;
-        const throttle = (this.cursors.up.isDown || pad.up || touch.up) && !brake;
-        const keyboardSteer = Number(this.cursors.right.isDown) - Number(this.cursors.left.isDown);
-        const heading = keyboardSteer || pad.steering ? null : touch.heading;
-        const steering = keyboardSteer || pad.steering || touch.steering || 0;
-        this.padTurbo = pad.turbo || touch.turbo;
+        // Setas e D-pad apontam para o destino na TELA como o joystick de
+        // toque: esquerda aponta à esquerda, baixo aponta para baixo, etc.
+        // Setas / D-pad definem apenas para onde apontar o carro.
+        // A aceleração vem exclusivamente dos pedais (B/W ou Y/Shift).
+        // A / Espaço / S freia e engata ré, com prioridade sobre acelerar.
+        const keyboardHeading = screenHeading(this.cursors.left.isDown, this.cursors.right.isDown,
+            this.cursors.up.isDown, this.cursors.down.isDown);
+        const padHeading = screenHeading(pad.left, pad.right, pad.up, pad.down);
         const seconds = Math.min(delta / 1000, 0.1);
+        const digitalTarget = keyboardHeading ?? padHeading;
+        let heading = touch.heading;
+        if (digitalTarget !== null) {
+            // O joystick de toque já fornece ângulos contínuos. Só suavizamos
+            // o D-pad e as setas, que mudam abruptamente entre 8 direções.
+            // Ao começar a apertar, partimos da orientação real do carro,
+            // para não virar de uma vez rumo a um alvo antigo.
+            const facingError = Math.atan2(Math.sin(digitalTarget - this.rotation),
+                Math.cos(digitalTarget - this.rotation));
+            if (this.digitalHeading == null || Math.abs(facingError) < 0.02) {
+                this.digitalHeading = this.rotation;
+            }
+            // Interpolação angular pelo caminho mais curto, inclusive quando
+            // o ângulo cruza -PI/PI. Sem overshoot ou dependência dos FPS.
+            const diff = Math.atan2(Math.sin(digitalTarget - this.digitalHeading),
+                Math.cos(digitalTarget - this.digitalHeading));
+            this.digitalHeading += diff * (1 - Math.exp(-DIGITAL_HEADING_RESPONSE * seconds));
+            heading = this.digitalHeading;
+        } else {
+            // Soltar o direcional zera a curva imediatamente, como no toque.
+            this.digitalHeading = null;
+        }
+        const brake = this.keyBrake.isDown || this.keyBrakeS.isDown || pad.reverse || touch.down;
+        const throttle = (this.keyAccelerate.isDown || this.keyShift.isDown ||
+            pad.accelerate || pad.turbo || touch.up || touch.turbo) && !brake;
+        const steering = heading === null ? (touch.steering || 0) : 0;
+        this.padTurbo = pad.turbo || touch.turbo;
         const forward = this.scene.physics.velocityFromRotation(this.rotation - Math.PI / 2, 1);
         const forwardSpeed = this.body.velocity.dot(forward);
         this.updateTurbo(time, seconds, throttle && forwardSpeed >= 0, forward);
@@ -193,7 +243,8 @@ export default class Car extends Phaser.Physics.Arcade.Sprite {
         const motion = stepHandling(this.handling, {
             vx: this.body.velocity.x, vy: this.body.velocity.y, rotation: this.rotation,
             acceleration: this.acceleration, maxSpeed: this.maxDriveSpeed,
-        }, { steering, throttle, brake, heading }, seconds, touch.mobile ? MOBILE_HANDLING : HANDLING);
+        }, { steering, throttle, brake, heading }, seconds,
+            heading !== null || touch.mobile ? MOBILE_HANDLING : HANDLING);
         // Depois da batida, não empurra de novo contra a mesma superfície.
         // A ré e a direção para longe dela continuam liberadas.
         if (this.contact && time < this.contact.until) {

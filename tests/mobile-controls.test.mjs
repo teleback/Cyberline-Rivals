@@ -76,6 +76,8 @@ function makeCar() {
     Object.assign(car, {
         controlsEnabled: true,
         handling: createHandlingState(),
+        keyAccelerate: { isDown: false }, keyShift: { isDown: false },
+        keyBrake: { isDown: false }, keyBrakeS: { isDown: false },
         cursors: Object.fromEntries(['left', 'right', 'up', 'down'].map(key => [key, { isDown: false }])),
         scene: { physics: { velocityFromRotation: (_angle, speed, target) => {
             if (target) Object.assign(target, { x: 0, y: -speed });
@@ -110,12 +112,12 @@ test('touches outside the fixed circle are ignored and small centered movements 
     assert.equal(readTouch().steering, 0);
 });
 
-test('joystick points in all screen directions and accelerates without braking', () => {
+test('joystick points in all screen directions without accelerating or braking', () => {
     for (const [x, y, heading] of [[0, -48, 0], [48, 0, Math.PI / 2],
         [0, 48, Math.PI], [-48, 0, -Math.PI / 2], [48, -48, Math.PI / 4]]) {
         gesture(x, y);
         assert.ok(Math.abs(readTouch().heading - heading) < 1e-9);
-        assert.equal(readTouch().up, true);
+        assert.equal(readTouch().up, false, 'direction does not press throttle');
         assert.equal(readTouch().down, false);
     }
 });
@@ -139,7 +141,7 @@ test('radial neutral zone filters jitter and long drags preserve the fixed cente
     zone.emit('pointermove', { clientX: 113, clientY: 100 });
     assert.equal(readTouch().heading, Math.PI / 2);
     zone.emit('pointermove', { clientX: 109, clientY: 100 });
-    assert.equal(readTouch().up, true);
+    assert.equal(readTouch().up, false);
     zone.emit('pointermove', { clientX: 107, clientY: 100 });
     assert.equal(readTouch().heading, null);
     zone.emit('pointermove', { clientX: 400, clientY: 100 });
@@ -215,6 +217,28 @@ test('car uses screen heading, stops turning on release and allows keyboard over
     car.cursors.right.isDown = true;
     car.update(0, 1000 / 60);
     assert.ok(car.angularVelocity > 0, 'keyboard takes priority over the touch target');
+    zone.emit('pointerup');
+});
+
+test('mobile steering alone never throttles, but accelerate and turbo work independently', () => {
+    gesture(48, 0);
+    assert.equal(readTouch().up, false);
+    const car = makeCar();
+    car.update(100, 16);
+    assert.equal(car.networkControls.throttle, false);
+    accelerate.emit('pointerdown', { pointerId: 2 });
+    car.update(116, 16);
+    assert.equal(car.networkControls.throttle, true);
+    accelerate.emit('pointerup', { pointerId: 2 });
+    turbo.emit('pointerdown', { pointerId: 2 });
+    car.update(132, 16);
+    assert.equal(car.networkControls.throttle, true);
+    assert.equal(readTouch().turbo, true);
+    brake.emit('pointerdown', { pointerId: 3 });
+    car.update(148, 16);
+    assert.equal(car.networkControls.throttle, false);
+    brake.emit('pointerup', { pointerId: 3 });
+    turbo.emit('pointerup', { pointerId: 2 });
     zone.emit('pointerup');
 });
 

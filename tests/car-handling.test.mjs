@@ -107,7 +107,7 @@ test('boost expiry sheds excess speed gradually without gaining speed', () => {
     car.tick({ throttle: true });
     assert.ok(car.speed > 630 && car.speed < 650);
     car.run(1.5, { throttle: true });
-    assert.ok(Math.abs(car.speed - 390) < 1e-6);
+    assert.ok(Math.abs(car.speed - HANDLING.maxSpeed) < 1e-6);
 });
 
 test('a tab stall cannot create a giant physics impulse', () => {

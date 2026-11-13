@@ -2,7 +2,7 @@
 // aqui controlamos tração, freio e pneus no referencial do próprio carro.
 export const HANDLING = Object.freeze({
     acceleration: 560,
-    maxSpeed: 390,
+    maxSpeed: 420,
     turnSpeed: 225,
     steeringResponse: 20,
     normalGripRate: 13,

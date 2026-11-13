@@ -1,48 +1,66 @@
-// Lê o controle USB (Super Nes genérico) direto da Gamepad API do navegador.
-// Não precisa de plugin: funciona em Chrome, Edge e Firefox (Windows/Mac/Linux).
+// Lê controles SNES USB/Bluetooth pela Gamepad API do navegador.
+// Durante a corrida: D-pad aponta o carro na direção da tela (inclusive
+// cima/baixo e diagonais) sem acelerar, como o joystick do celular;
+// B = acelerar, Y = turbo (também acelera), A = frear e engatar ré.
+// Os quatro sentidos do D-pad continuam disponíveis para navegar nos menus.
+// Teclado e comandos de toque são independentes.
 //
-// Controles no jogo:
-//   D-pad esquerda/direita = virar | D-pad cima = frente | D-pad baixo = freio/ré
-//   L = acelerar | R = turbo
-//
-// IMPORTANTE: o navegador só "enxerga" o controle depois que você aperta
-// qualquer botão nele pelo menos uma vez com a página aberta.
-//
-// Controles genéricos não seguem um padrão: o número dos botões L e R muda
-// de controle pra controle. Por isso o jogo tem CALIBRAÇÃO: ao começar a
-// corrida (ou apertando a tecla T) ele pede "aperte o L" e "aperte o R" e
-// guarda a escolha neste navegador.
+// O navegador detecta o controle após o primeiro botão ser pressionado.
+// Se algum controle reportar botões diferentes, pressione T para calibrar.
 
-// Botões confirmados neste controle (Ponto do Nerd / SNES USB):
-//   0=X  1=A  2=B  3=Y  4=L  6=R
+// Controle SNES USB genérico já identificado: 0=X, 1=A, 2=B, 3=Y.
 export const BUTTONS = {
-    acelerar: [4],        // L
-    turbo: [6],           // R
+    acelerar: [2],       // B
+    turbo: [3],          // Y
+    re: [1],             // A
     confirmar: [0, 1, 2, 3], // menus: X/A/B/Y
+};
+
+// Quando o navegador informa mapping='standard', os índices são os da
+// posição física do controle (0=baixo/B, 1=direita/A, 2=esquerda/Y).
+const STANDARD_BUTTONS = {
+    acelerar: [0],
+    turbo: [2],
+    re: [1],
 };
 
 const DEADZONE = 0.5;
 
 // --- Calibração ------------------------------------------------------------
-const SAVE_KEY = 'cyberline-pad-buttons-v3';
+// v4 ignora calibrações antigas de L/R e guarda os botões por controle.
+const SAVE_KEY = 'cyberline-pad-buttons-v4';
 const STEPS = [
-    { name: 'acelerar', texto: 'Aperte o botão L (ACELERAR) no controle...' },
-    { name: 'turbo', texto: 'Aperte o botão R (TURBO) no controle...' },
+    { name: 'acelerar', texto: 'Aperte o botão B (ACELERAR) no controle...' },
+    { name: 'turbo', texto: 'Aperte o botão Y (TURBO) no controle...' },
+    { name: 're', texto: 'Aperte o botão A (FREIO/RÉ) no controle...' },
 ];
-const mapped = { acelerar: BUTTONS.acelerar, turbo: BUTTONS.turbo };
-let hasSaved = false;
-
+const profiles = {};
 try {
     const saved = JSON.parse(localStorage.getItem(SAVE_KEY));
-    if (saved && Array.isArray(saved.acelerar) && Array.isArray(saved.turbo)) {
-        mapped.acelerar = saved.acelerar;
-        mapped.turbo = saved.turbo;
-        hasSaved = true;
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+        for (const [key, value] of Object.entries(saved)) {
+            if (STEPS.every(({ name }) => Array.isArray(value?.[name])
+                    && value[name].length === 1
+                    && Number.isInteger(value[name][0]) && value[name][0] >= 0)
+                    && new Set(STEPS.map(({ name }) => value[name][0])).size === STEPS.length) {
+                profiles[key] = value;
+            }
+        }
     }
 } catch (e) { /* sem localStorage: usa o padrão */ }
 
+function padKey(pad) {
+    return `${pad.id}|${pad.mapping}`;
+}
+
+function buttonsFor(pad) {
+    return profiles[padKey(pad)] || (pad.mapping === 'standard' ? STANDARD_BUTTONS : BUTTONS);
+}
+
 let step = -1;          // -1 = não está calibrando
 let learnArmed = false; // só aceita depois de soltar todos os botões
+let calibratingPad = null;
+let learned = {};
 let overlay = null;
 
 function say(text, ms) {
@@ -63,14 +81,13 @@ function say(text, ms) {
 export function startCalibration() {
     step = 0;
     learnArmed = false;
+    calibratingPad = null;
+    learned = {};
     say(STEPS[0].texto, 0);
 }
 
-// Chamado quando a corrida começa: se ainda não calibrou e há controle
-// conectado, já inicia a calibração sozinho.
 export function calibrateIfNeeded() {
-    // Mapeamento já conhecido (L=4, R=6) — calibração automática desligada.
-    // Aperte T a qualquer momento se precisar recalibrar outro controle.
+    // Padrões SNES/standard já definidos; T inicia a calibração manual.
 }
 
 if (typeof window !== 'undefined') {
@@ -80,26 +97,31 @@ if (typeof window !== 'undefined') {
 }
 
 function learnStep(pad) {
+    const key = padKey(pad);
+    if (calibratingPad === null) calibratingPad = key;
+    if (key !== calibratingPad) return;
+
     const down = pad.buttons.map((b, i) => (b && b.pressed ? i : -1)).filter((i) => i >= 0);
     if (!learnArmed) {
-        if (!down.length) learnArmed = true; // espera soltar tudo antes
+        if (!down.length) learnArmed = true;
         return;
     }
     if (!down.length) return;
 
-    const atual = STEPS[step];
-    // Não deixa usar o mesmo botão para as duas funções
-    if (step === 1 && mapped.acelerar.includes(down[0])) return;
+    // B, Y e A precisam ser três botões físicos distintos.
+    if (Object.values(learned).some((indexes) => indexes.includes(down[0]))) return;
 
-    mapped[atual.name] = [down[0]];
+    learned[STEPS[step].name] = [down[0]];
     step += 1;
     learnArmed = false;
 
     if (step >= STEPS.length) {
         step = -1;
-        hasSaved = true;
-        try { localStorage.setItem(SAVE_KEY, JSON.stringify(mapped)); } catch (e) { /* ok */ }
-        say('Pronto! L = botão ' + mapped.acelerar[0] + ', R = botão ' + mapped.turbo[0], 2500);
+        profiles[key] = learned;
+        try { localStorage.setItem(SAVE_KEY, JSON.stringify(profiles)); } catch (e) { /* ok */ }
+        say('Pronto! B = botão ' + learned.acelerar[0]
+            + ', Y = botão ' + learned.turbo[0]
+            + ', A = botão ' + learned.re[0], 2500);
     } else {
         say(STEPS[step].texto, 0);
     }
@@ -149,11 +171,12 @@ function decodeHat(v) {
     ][idx] || null;
 }
 
-// Lê o estado atual: { left, right, up, down, steering, turbo, any }
-// (up = acelerar, down = freio/ré)
+// up/down são direções absolutas do D-pad (inclusive nos menus); accelerate/reverse são pedais.
+// turbo funciona mesmo sem segurar B, como no botão virtual do celular.
 export function readGamepad() {
     const pad = getPad();
-    const state = { left: false, right: false, up: false, down: false, steering: 0, turbo: false, any: false };
+    const state = { left: false, right: false, up: false, down: false,
+        steering: 0, accelerate: false, reverse: false, turbo: false, any: false };
     if (!pad) return state;
 
     if (step >= 0) {
@@ -192,9 +215,11 @@ export function readGamepad() {
         state.right = state.right || !!d.right;
     });
 
-    // Botões: L acelera (além do D-pad para cima), R é o turbo
-    state.up = state.up || pressed(pad, mapped.acelerar);
-    state.turbo = pressed(pad, mapped.turbo);
+    // Botões de corrida independentes das direções do D-pad.
+    const buttons = buttonsFor(pad);
+    state.turbo = pressed(pad, buttons.turbo);
+    state.accelerate = pressed(pad, buttons.acelerar) || state.turbo;
+    state.reverse = pressed(pad, buttons.re);
     // Controles padrão mantêm a intensidade do analógico; o D-pad e os
     // controles SNES genéricos continuam com o curso completo do volante.
     const digitalLeft = btn(14) || (state.left && ax >= -axisDeadzone);

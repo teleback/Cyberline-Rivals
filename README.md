@@ -49,8 +49,13 @@ parar, engata a ré. Freio e direção juntos em velocidade iniciam um drift;
 solte o freio e acelere para recuperar a aderência na saída da curva. Shift
 com aceleração aciona o turbo. O freio tem prioridade se ambos forem apertados.
 
-O controle padrão usa direção analógica; o controle SNES usa o D-pad e os
-botões L (aceleração) e R (turbo). No celular, aponte o joystick fixo para
+O controle padrão usa direção analógica; no controle SNES, use **esquerda/direita**
+do D-pad para virar, **B** para acelerar, **Y** para turbo e **A** para frear
+ou engatar a ré. O botão Y também acelera enquanto o turbo estiver pressionado;
+A tem prioridade sobre B e Y. Cima/baixo do D-pad navega nos menus, mas não
+controla a aceleração durante a corrida. Se o controle tiver outra numeração
+de botões, aperte **T** no teclado durante o jogo para calibrar B, Y e A.
+No celular, aponte o joystick fixo para
 onde quer ir na tela: esquerda, direita, cima, baixo ou diagonais. O carro
 acelera e se orienta nessa direção; segurar o gesto mantém o rumo sem girar
 continuamente. Centralizar ou soltar encerra a aceleração e o giro.
