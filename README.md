@@ -88,10 +88,7 @@ reposiciona o rival recebido pela rede. Faíscas, um pulso curto e um som grave
 em volume baixo marcam o impacto, com intervalo para evitar efeitos repetidos.
 O som acompanha o volume geral e a tecla **M**.
 
-A garagem tem **6 carros**, incluindo **AMBER GT** (grafite/âmbar) e
-**ION INTERCEPTOR** (branco/ciano), com modelos próprios e a mesma física.
-Os novos sprites já vêm no tamanho final de 102 × 166 pixels e pesam cerca
-de 15 KB cada. A escolha vale também para a corrida, o rival e o resultado.
+A garagem tem **6 carros** com modelos próprios e a mesma física.
 Os nicks dos dois jogadores usam placas compactas com borda na cor do carro.
 
 A linha de largada/chegada bloqueia a passagem no sentido contrário, tanto
@@ -109,77 +106,8 @@ Os tijolinhos da pista reaparecem por volta, mantendo um único dono por tijolin
 
 O resultado mostra os dois carros animados, o primeiro e o segundo colocado, o tempo de cada piloto e os tijolinhos ganhos com a coleta e as recompensas. O menor tempo decide o vencedor; não há multiplicador de pontuação por tempo. Os valores das recompensas ficam em `js/objects/RaceRewards.js`.
 
-O pódio tem uma cidade noturna ao fundo, ponte suspensa, refletores e piso em perspectiva. Títulos e números usam a fonte arcade do jogo; as recompensas ficam em placas com cantos recortados e o total em um painel separado. O campeão fica em destaque dourado e faz um giro de comemoração; o vice chega em drift sobre uma plataforma ciano. Os dois carros continuam flutuando sobre os pódios iluminados. A contagem soma os tijolinhos coletados e o bônus de vitória em sequência, com tijolinhos voando até o total, barra de progresso e um brilho ao concluir. Toque ou pressione uma tecla para revelar os valores imediatamente.
-
-Ao terminar a contagem, aparece **VOLTAR AO MENU**, disponível por toque, clique, Enter, Espaço, Esc ou uma nova confirmação no controle. A saída libera a presença na sala e permite iniciar outra partida sem recarregar a página.
-
-Tanto o **vencedor** quanto o **segundo colocado** podem resgatar seus créditos. Cada jogador vê **RESGATAR <seu total> COM GOOGLE** (clique, toque ou tecla **R**) no próprio navegador e recebe exatamente a quantidade de tijolinhos que ganhou. O jogador entra com sua conta Google e o jogo envia automaticamente um `POST` para `https://feira-de-jogos.dev.br/api/v2/credit`, com o ID token recebido do Google em `Authorization: Bearer <token>` e o JSON `{ "product": "cyberline-rivals", "value": <total de tijolinhos do jogador local> }`. O total é a quantidade coletada na pista, mais **40 tijolinhos** somente para o vencedor. O resgate mostra o andamento, confirma o sucesso e impede novos envios da mesma partida após a confirmação. Em caso de erro, permite tentar novamente; voltar ao menu continua sendo opcional.
-
-O client ID e o `product` ficam em `js/services/CreditService.js`, com um `// TODO` para trocar o identificador do produto. Cadastre a origem do jogo (e a origem local de desenvolvimento) nas **Origens JavaScript autorizadas** desse client ID no Google Cloud. A API deve aceitar o ID token Google no cabeçalho Bearer e permitir CORS da origem do jogo, incluindo `POST`, `Content-Type` e `Authorization`. O login e o envio real dependem dessas configurações externas.
-
 Há **10 salas**, com limite de **2 pilotos por sala** e ocupação ao vivo.
 Salas completas mostram **PARTIDA EM ANDAMENTO** e bloqueiam outra entrada.
 A lista usa páginas para manter os cartões legíveis no celular; toque nas
 setas ou deslize para ver as outras salas. Teclado e controle também navegam
 entre as páginas. A entrada aguarda a verificação da ocupação.
-
-No celular, o turbo usa um perfil visual mais leve, com menos partículas e rastros, sem os filtros de tela nem a sombra animada do canvas. O impulso e o consumo do turbo continuam com as mesmas regras.
-
-As placas de boost têm acabamento metálico, bordas ciano/violeta e três setas
-que acendem em sequência no sentido do impulso. Ao passar por elas, uma
-onda dupla se expande pelo asfalto, com faíscas direcionais e um rastro
-elétrico curto atrás do carro. Os efeitos são reutilizados; no celular,
-o pulso usa uma onda e menos partículas e rastros. As oito placas mantêm
-as mesmas posições, dimensões e regras de aceleração.
-
-
-## Desempenho e iluminação
-
-As células vazias do mapa usam `null`, evitando criar cerca de **870 mil
-objetos de tile** sem arte ao entrar na corrida. Os tiles ocupados, a física
-e a posição dos elementos continuam iguais. As imagens grandes dos carros
-são liberadas após gerar os sprites finais, que ficam disponíveis para
-reutilização entre a garagem e as corridas.
-
-O cenário reaproveita os blocos visíveis até a câmera mudar de área e pula
-as partes vazias das camadas. O cache de luzes só é atualizado ao mudar de
-bloco, mantendo uma margem para o movimento e o zoom. Luzes de carros fora
-da tela ficam suspensas até seus faróis se aproximarem da câmera.
-
-A textura da pista repete dois pixels das bordas de cada tile em uma margem
-interna, gerada uma única vez e reutilizada entre corridas. Isso evita frestas
-nas emendas durante o movimento e o zoom, preservando a suavidade da iluminação.
-
-A pista tem uma sombra azulada um pouco mais escura para destacar os neons.
-Letreiros e fachadas iluminadas têm halos coloridos com um núcleo mais intenso,
-e as bordas do circuito recebem pequenas luzes ciano, violeta e magenta com
-brilho no chão. Os pontos de luz têm o mesmo tamanho, alinham-se entre os
-meios-fios nas retas e mantêm distância nas curvas para evitar sobreposição.
-Parte dos postes alterna entre ciano, magenta e violeta, com a lente e o halo
-na mesma cor. Os faróis e o neon sob os carros também têm mais presença.
-O HUD e o minimapa mantêm o brilho original. O turbo mantém uma
-mudança discreta de cor no computador, com a pista nítida; no celular,
-fumaça e marcas de pneu também usam limites menores e objetos reutilizados.
-Os refletores de borda são gravados uma vez em blocos de textura de meia
-resolução; somente os blocos próximos da câmera ficam visíveis. Os impactos
-reutilizam emissores e imagens, com até 8 faíscas por batida no celular.
-Os blocos de luz e reflexos não repetem suas bordas, evitando linhas de neon
-nas emendas sobre o asfalto, inclusive ao redor do Cybercafé.
-
-No celular, os blocos de iluminação noturna usam meia resolução, com **75%
-menos pixels** em cache e a mesma área iluminada. Os refletores de borda
-também são gerados sob demanda, com até 24 blocos em cache no campo de visão
-da corrida, em vez de reservar texturas para o circuito inteiro. Seus
-recursos são liberados ao sair da pista. O óleo tem limites menores de
-partículas e rastros no celular, e o menu pula os filtros de tela nesses
-aparelhos. Os cálculos de colisão reutilizam memória e descartam candidatos
-distantes antes de calcular o contato; direção, turbo e regras de corrida
-mantêm o mesmo comportamento.
-
-O cenário respeita os deslocamentos definidos no Tiled. Prédios, contêineres,
-sucata, cercas, arbustos e postes foram ajustados para liberar o asfalto ao
-longo de todo o circuito. Nas ilhas estreitas, as propriedades
-`sceneryScaleX` e `sceneryScaleY` ajustam a arte uma vez no carregamento;
-os letreiros e suas luzes acompanham o tamanho e a posição da fachada.
-
-Verificação automatizada: `node --test tests/*.test.mjs`.
