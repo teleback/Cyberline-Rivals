@@ -338,12 +338,60 @@ test('SNES D-pad reads direction as an absolute target with buttons, axes and ha
     car.rotation = -Math.PI / 4;
     car.update(232, 16);
     assert.equal(car.body.angularVelocity, 0, 'axis-based SNES D-pad diagonal works');
-    pad.axes = [0, 0, ...Array(7).fill(0), 1]; // eixo hat 9 = cima + esquerda
+    pad.axes = [0, 0, ...Array(7).fill(0), 1.285]; // repouso do hat: habilita o eixo 9
+    assert.equal(readGamepad().down, false);
+    pad.axes[9] = 1; // eixo hat 9 = cima + esquerda
     car.update(248, 16);
     assert.equal(car.body.angularVelocity, 0, 'hat-based SNES D-pad diagonal works');
     pad.axes = [0, 0];
     car.update(264, 16);
     assert.equal(car.networkControls.throttle, false, 'neutral D-pad releases acceleration');
+    pad = null;
+});
+
+test('SNES up + B never becomes reverse because an unrelated axis 9 is neutral', () => {
+    createPad();
+    // Vários controles expõem um eixo 9 analógico neutro = 0, sem D-pad hat.
+    // Antes da correção, esse 0 era decodificado como "baixo" e anulava "cima".
+    pad.axes = [0, -1, ...Array(7).fill(0), 0];
+    setPadButton(2); // B: aceleração somente
+    const reading = readGamepad();
+    assert.equal(reading.up, true);
+    assert.equal(reading.down, false, 'um eixo neutro não pode criar seta para baixo');
+    assert.equal(reading.reverse, false, 'a ré exige o botão A');
+    const car = setup();
+    car.rotation = 0; // carro virado para o alto da pista
+    car.update(100, 16);
+    assert.equal(car.networkControls.brake, false);
+    assert.equal(car.networkControls.throttle, true);
+    assert.ok(car.body.velocity.y < 0, 'B + cima desloca o carro para cima');
+    assert.equal(car.body.angularVelocity, 0, 'a direção não pode ser anulada');
+    car.rotation = Math.PI; // vinha de um trecho em direção ao sul
+    for (let frame = 0; frame < 75; frame++) {
+        car.update(116 + frame * 16, 16);
+        car.rotation += car.body.angularVelocity * Math.PI / 180 * 0.016;
+        assert.equal(car.networkControls.brake, false);
+    }
+    assert.ok(car.body.velocity.y < 0, 'segurar cima + B deve conduzir ao norte, não à ré');
+    setPadButton(1); // A continua sendo o único comando de freio/ré
+    car.update(2000, 16);
+    assert.equal(car.networkControls.brake, true);
+    assert.equal(car.networkControls.throttle, false);
+    setPadButton(2, false);
+    setPadButton(1, false);
+    pad = null;
+});
+
+test('hat axis is decoded only after its distinctive neutral value was seen', () => {
+    createPad();
+    pad.axes = [0, 0, ...Array(7).fill(0), 0];
+    assert.deepEqual([readGamepad().up, readGamepad().down], [false, false]);
+    pad.axes[9] = 1.285; // repouso de hat real
+    assert.deepEqual([readGamepad().up, readGamepad().down], [false, false]);
+    pad.axes[9] = -1; // cima
+    assert.deepEqual([readGamepad().up, readGamepad().down], [true, false]);
+    pad.axes[9] = 0.143; // baixo
+    assert.deepEqual([readGamepad().up, readGamepad().down], [false, true]);
     pad = null;
 });
 

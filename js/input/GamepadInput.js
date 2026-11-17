@@ -152,9 +152,12 @@ export function getPad() {
 }
 
 // Eixos "hat" (D-pad em forma de eixo único): em repouso valem ~1.29 e, ao
-// apertar, pulam para um de 8 valores entre -1 e 1. Guardamos quais eixos
-// já vimos com esse valor de repouso.
-const hatAxes = new Set([9]);
+// apertar, pulam para um de 8 valores entre -1 e 1. Um eixo comum em repouso
+// vale 0: decodificá-lo como hat gerava uma falsa seta BAIXO, inclusive
+// enquanto o jogador segurava CIMA no controle (as duas se anulavam).
+// Só habilitamos o decodificador depois de observar o repouso característico
+// do hat, separadamente para cada modelo de gamepad.
+const hatAxesByPad = new WeakMap();
 
 function decodeHat(v) {
     if (v > 1.1) return null; // repouso
@@ -201,7 +204,14 @@ export function readGamepad() {
     state.left = state.left || btn(14);
     state.right = state.right || btn(15);
 
-    // 3) D-pad como "hat" (um eixo só com 8 direções)
+    // 3) D-pad como "hat" (um eixo só com 8 direções).
+    // Nunca presumir que axes[9] seja um hat: em alguns controles é um
+    // analógico parado em 0, que seria interpretado como BAIXO para sempre.
+    let hatAxes = hatAxesByPad.get(pad);
+    if (!hatAxes) {
+        hatAxes = new Set();
+        hatAxesByPad.set(pad, hatAxes);
+    }
     pad.axes.forEach((v, i) => {
         if (i >= 2 && v > 1.1) hatAxes.add(i);
     });
