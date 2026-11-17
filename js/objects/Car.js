@@ -14,7 +14,7 @@ function screenHeading(left, right, up, down) {
 // Teclas e D-pad saltam entre 8 ângulos; o dedo no joystick percorre os
 // ângulos intermediários. Esta rampa reproduz esse movimento contínuo sem
 // alterar a física nem a resposta direta do joystick de toque.
-const DIGITAL_HEADING_RESPONSE = 9; // 1/s; resposta independente dos FPS
+const DIGITAL_HEADING_RESPONSE = 8; // 1/s; curva gradual, independente dos FPS
 
 export const OIL_SETTINGS = { entryRetention: 0.65, speedRetention: 0.22, minDecel: 160, minSpeed: 70 };
 

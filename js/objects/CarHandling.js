@@ -29,7 +29,8 @@ export const MOBILE_HANDLING = Object.freeze({ ...HANDLING,
     turnSpeed: 170, steeringResponse: 12, normalGripRate: 24,
     reverseAcceleration: 320, reverseMaxSpeed: 115, reverseDelay: 0.08,
     allowDrift: false, lowSpeedTurn: 0.48, cornerSlowdown: 0.34,
-    headingResponse: 16, headingTurnSpeed: 540,
+    // Orientação absoluta para joystick de toque e D-pad: giro mais controlável.
+    headingResponse: 10, headingTurnSpeed: 265,
     overspeedDeceleration: 460,
 });
 

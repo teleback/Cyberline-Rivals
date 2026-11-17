@@ -575,6 +575,25 @@ test('keyboard and SNES D-pad start a 90 degree turn progressively instead of a 
     pad = null;
 });
 
+test('SNES D-pad has lower turn sensitivity without changing acceleration controls', () => {
+    createPad();
+    const car = setup();
+    car.rotation = 0;
+    setPadButton(15); // D-pad para a direita
+    const turn = simulateTurn(car, 60, 0.25);
+    assert.ok(turn.firstAngular > 0 && turn.firstAngular < 140,
+        `the first D-pad frame should turn gently, got ${turn.firstAngular}°/s`);
+    assert.ok(turn.rotation > 0 && turn.rotation < Math.PI / 2,
+        'a short directional press should not snap directly to the target');
+    assert.equal(car.networkControls.throttle, false,
+        'the D-pad alone still must not accelerate the car');
+    setPadButton(15, false);
+    car.update(300, 1000 / 60);
+    assert.equal(car.body.angularVelocity, 0,
+        'releasing the D-pad stops rotating immediately');
+    pad = null;
+});
+
 test('D-pad turn is smooth at 30, 60 and 120 FPS, including diagonal and opposite turns', () => {
     const results = [];
     for (const fps of [30, 60, 120]) {

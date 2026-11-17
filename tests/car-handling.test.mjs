@@ -199,6 +199,26 @@ test('mobile heading reaches and holds every direction from arbitrary orientatio
     }
 });
 
+test('mobile joystick caps turn speed for gentler steering at 30/60/120 FPS', () => {
+    for (const fps of [30, 60, 120]) {
+        const car = simulation({ rotation: 0, fps, tuning: MOBILE_HANDLING });
+        const first = car.tick({ throttle: true, heading: Math.PI / 2 });
+        assert.ok(first.angularVelocity > 0 && first.angularVelocity < 300,
+            `${fps} FPS: initial mobile turn should be controlled, not an instant snap`);
+        assert.ok(car.motion.rotation > 0 && car.motion.rotation < 0.17,
+            `${fps} FPS: the first frame should rotate only a small amount`);
+        for (let i = 0; i < Math.round(fps * 1.4); i++) {
+            const turn = car.tick({ throttle: true, heading: Math.PI / 2 });
+            assert.ok(Math.abs(turn.angularVelocity) <= MOBILE_HANDLING.headingTurnSpeed + 1e-9,
+                `${fps} FPS: the speed cap must apply throughout the turn`);
+        }
+        assert.ok(Math.abs(car.motion.rotation - Math.PI / 2) < 0.001,
+            `${fps} FPS: holding the direction still reaches the target accurately`);
+        assert.equal(car.tick({ throttle: true }).angularVelocity, 0,
+            'letting go of the joystick stops the turn');
+    }
+});
+
 test('heading takes the shortest turn, works at rest and never overshoots', () => {
     const car = simulation({ rotation: Math.PI - 0.1, tuning: MOBILE_HANDLING });
     const heading = -Math.PI + 0.1;
