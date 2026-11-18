@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 import RaceResults, { resultsLayout } from '../js/fx/RaceResults.js';
+import { computeBrickRewards } from '../js/objects/RaceRewards.js';
 
 class Object2D extends EventEmitter {
     constructor(type, x = 0, y = 0, value, extra, color, alpha) {
@@ -463,4 +464,27 @@ test('shutdown during flying rewards destroys owned UI and leaves no scheduled w
     assert.equal(drawn.length, drawCount, 'shutdown cancels delayed confetti creation');
     assert.deepEqual(owned.filter(object => object.type === 'text').map(object => object.value), values,
         'shutdown cancels counter callbacks against destroyed text');
+});
+
+
+test("50 Tijolinhos victory bonus is shown and included in the winner's credit redemption", () => {
+    for (const localPlace of [1, 2]) {
+        const { results, scene } = setup();
+        const participants = [
+            { ...data[0], local: localPlace === 1, collected: 216, collectionMultiplier: 50 / 216,
+                rewards: computeBrickRewards({ collected: 216, totalAvailable: 216, finished: true, place: 1 }) },
+            { ...data[1], local: localPlace === 2, collected: 108, collectionMultiplier: 50 / 216,
+                rewards: computeBrickRewards({ collected: 108, totalAvailable: 216, finished: true, place: 2 }) },
+        ];
+        results.showResults(participants);
+        results.settleRewards(false);
+        assert.equal(results.rows[0].rewards[1].value.value, '+50');
+        assert.equal(results.rows[0].total.value, '100');
+        assert.equal(results.rows[1].rewards[1].value.value, '+0');
+        assert.equal(results.rows[1].total.value, '25');
+        assert.equal(results.localCreditValue(), localPlace === 1 ? 100 : 25);
+        scene.input.keyboard.emit('keydown', { key: 'r' });
+        assert.equal(results.creditRedemption.value, localPlace === 1 ? 100 : 25);
+        results.destroy();
+    }
 });

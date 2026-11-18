@@ -1686,9 +1686,12 @@ class Race extends Phaser.Scene {
           totalAvailable,
           laps: driver.laps, finished: true, place }, this.rewardRules) };
     });
-    this.finishPlace = this.raceResultsData.find(driver => driver.local).place;
+    const localResult = this.raceResultsData.find(driver => driver.local);
+    this.finishPlace = localResult.place;
     this.championNick = this.raceResultsData[0].nick;
-    this.finalScoreData = this.computeFinalScore();
+    // The final score and Google redemption use the same finalized podium reward,
+    // including the winner's victory bonus, instead of recalculating a provisional score.
+    this.finalScoreData = localResult.rewards;
     this.podiumShown = true;
     this.publishNetworkState(true, true);
     this.playChampionAnimation();
@@ -1696,6 +1699,7 @@ class Race extends Phaser.Scene {
   }
 
   computeFinalScore() {
+    if (this.podiumShown && this.finalScoreData) return this.finalScoreData;
     return computeBrickRewards({ collected: this.brickCount || 0,
       totalAvailable: this.brickCollectibles?.totalAvailable || 0,
       laps: this.completedLaps || 0, finished: this.raceFinished, place: this.finishPlace }, this.rewardRules);

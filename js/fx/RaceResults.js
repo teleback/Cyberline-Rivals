@@ -208,10 +208,10 @@ export default class RaceResults {
         const infoX = left + panelWidth * 0.43;
         this.text(infoX, top + panelHeight * 0.35, 'SEU TEMPO', compact ? 10 : 12, '#8aa3c2');
         this.waitingTime = this.text(infoX, top + panelHeight * 0.35 + 19, '', compact ? 20 : 25);
-        this.text(infoX, top + panelHeight * 0.61, 'TIJOLINHOS GANHOS', compact ? 9 : 11, '#e9bd77');
+        this.text(infoX, top + panelHeight * 0.61, 'COLETA (PARCIAL)', compact ? 9 : 11, '#e9bd77');
         this.waitingTotal = this.arcade(infoX, top + panelHeight * 0.61 + 20, '', compact ? 20 : 25, '#ffdd8a');
         this.text(width / 2, top + panelHeight - 40, 'AGUARDANDO O ADVERSÁRIO...', compact ? 11 : 13, '#afc3e1').setOrigin(0.5, 0);
-        this.text(width / 2, top + panelHeight - 19, 'A classificação e o bônus de vitória chegam em seguida.',
+        this.text(width / 2, top + panelHeight - 19, 'O bônus de +50 pela vitória entra no resultado final.',
             width < 520 ? 8 : 10, '#6c829f').setOrigin(0.5, 0);
         this.updateWaiting();
     }

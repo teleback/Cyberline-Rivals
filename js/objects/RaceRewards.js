@@ -1,7 +1,7 @@
-export const BRICK_REWARD_RULES = Object.freeze({ lap: 0, finish: 0, victory: 25 });
+export const BRICK_REWARD_RULES = Object.freeze({ lap: 0, finish: 0, victory: 50 });
 
 const whole = value => Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
-const MAX_COLLECTION_REWARD = 25;
+const MAX_COLLECTION_REWARD = 50;
 
 export function getCollectionMultiplier(totalAvailable) {
     const available = whole(totalAvailable);

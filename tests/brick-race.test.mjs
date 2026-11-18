@@ -121,7 +121,7 @@ test('waiting view receives the personal time and all earned tijolinhos', () => 
             calls++;
             assert.equal(race.formatRaceTime(race.finishElapsedMs), '03:00.00');
             assert.deepEqual(race.computeFinalScore(), {
-                collected: 25, laps: 0, finish: 0, victory: 0, total: 25,
+                collected: 50, laps: 0, finish: 0, victory: 0, total: 50,
             });
         } },
     });
@@ -153,32 +153,58 @@ test('both podium places contain the actual skins, times, and tijolinho-only rew
     race.tryResolvePodium();
     assert.equal(race.finishPlace, 1);
     assert.equal(race.podiumShown, true);
-    assert.equal(race.finalScoreData.total, 50);
-    assert.equal(race.raceResultsData[0].collectionMultiplier, 25 / 17);
+    assert.equal(race.finalScoreData.total, 100);
+    assert.equal(race.raceResultsData[0].collectionMultiplier, 50 / 17);
     assert.deepEqual(race.raceResultsData.map(driver => ({ id: driver.id, place: driver.place,
         elapsed: driver.elapsed, skin: driver.skin, rewards: driver.rewards })), [
         { id: 'a', place: 1, elapsed: 160000, skin: 'pink',
-            rewards: { collected: 25, laps: 0, finish: 0, victory: 25, total: 50 } },
+            rewards: { collected: 50, laps: 0, finish: 0, victory: 50, total: 100 } },
         { id: 'b', place: 2, elapsed: 170000, skin: 'blue',
-            rewards: { collected: 13, laps: 0, finish: 0, victory: 0, total: 13 } },
+            rewards: { collected: 26, laps: 0, finish: 0, victory: 0, total: 26 } },
     ]);
     assert.equal(calls.podium.length, 1);
     calls.timers[0].fn();
     assert.equal(calls.results.length, 1);
     race.tryResolvePodium();
     assert.equal(calls.podium.length, 1);
-    assert.equal(race.computeFinalScore().total, 50, 'repeated packets never repeat victory rewards');
+    assert.equal(race.computeFinalScore().total, 100, 'repeated packets never repeat victory rewards');
+    assert.equal(race.finalScoreData, race.raceResultsData[0].rewards,
+        'local winner final score uses the exact podium reward, including 50 for the victory');
 });
 
 test('second place never gets the victory bonus; equal times use the same ID tiebreak on both peers', () => {
     const { race } = podiumScene({ elapsed: 170000, opponentElapsed: 160000 });
     race.tryResolvePodium();
     assert.equal(race.finishPlace, 2);
-    assert.equal(race.finalScoreData.total, 25);
+    assert.equal(race.finalScoreData.total, 50);
     assert.equal(race.finalScoreData.victory, 0);
     const tie = podiumScene({ elapsed: 160000, opponentElapsed: 160000 }).race;
     tie.tryResolvePodium();
     assert.deepEqual(tie.raceResultsData.map(driver => driver.id), ['a', 'b']);
+});
+
+
+test('winner receives 50 Tijolinhos for victory even with no collected pickups', () => {
+    const { race } = podiumScene();
+    race.brickCount = 0;
+    race.brickCollectibles.countFor = () => 0;
+    race.brickCollectibles.totalAvailable = 216;
+    race.tryResolvePodium();
+    assert.deepEqual(race.finalScoreData,
+        { collected: 0, laps: 0, finish: 0, victory: 50, total: 50 });
+    assert.equal(race.raceResultsData[1].rewards.total, 0);
+    assert.equal(race.computeFinalScore().total, 50);
+});
+
+test('runner-up cannot claim the victory bonus regardless of pickups, while the winner gets the full 100', () => {
+    const { race } = podiumScene({ elapsed: 170000, opponentElapsed: 160000 });
+    race.brickCollectibles.totalAvailable = 216;
+    race.brickCollectibles.countFor = id => id === 'b' ? 216 : 108;
+    race.tryResolvePodium();
+    assert.deepEqual(race.raceResultsData.map(driver => [driver.place, driver.rewards.collected,
+        driver.rewards.victory, driver.rewards.total]), [[1, 50, 50, 100], [2, 25, 0, 25]]);
+    assert.equal(race.finalScoreData, race.raceResultsData[1].rewards);
+    assert.equal(race.computeFinalScore().total, 25);
 });
 
 test('podium waits for all pickup confirmations and ignores a finisher from another race', () => {
