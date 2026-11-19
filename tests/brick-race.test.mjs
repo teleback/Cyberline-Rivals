@@ -82,8 +82,6 @@ test('invalid finish-line crossings cannot restore collected bricks', () => {
         { previousCarX: 990 },
         { previousCarX: 1004 },
         { car: { x: 1005, y: 3488, body: { velocity: { x: -100 } } } },
-        { car: { x: 1002, y: 3488, body: { velocity: { x: -20 } } } },
-        { car: { x: 1002, y: 3488, body: { velocity: { x: 100 } } } },
         { car: { x: 1002, y: 3299, body: { velocity: { x: -100 } } } },
         { car: { x: 1002, y: 3601, body: { velocity: { x: -100 } } } },
         { raceFinished: true },
@@ -96,6 +94,18 @@ test('invalid finish-line crossings cannot restore collected bricks', () => {
         assert.equal(race.brickCount, 17);
         assert.equal(race.completedLaps, 0);
         assert.equal(race.finishCalls, 0);
+    }
+});
+
+test('a valid finish crossing counts even when the car brakes or rebounds on that frame', () => {
+    for (const velocityX of [-20, 0, 100]) {
+        const { race, resets } = lapScene({
+            car: { x: 1002, y: 3488, body: { velocity: { x: velocityX } } },
+        });
+        race.updateLapSystem();
+        assert.equal(race.currentLap, 2);
+        assert.equal(race.completedLaps, 1);
+        assert.deepEqual(resets, [2]);
     }
 });
 

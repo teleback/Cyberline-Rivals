@@ -32,6 +32,38 @@ import { pushRemoteMotion, sampleRemoteMotion, resetRemoteMotion } from "../obje
 
 const REMOTE_TIMEOUT = 5000;
 
+// Portões sobre a pista real do Tiled (tiles de 64px). As áreas cobrem
+// ambas as faixas: o antigo CP1 ficava rente à borda inferior e o CP4
+// estava sobre a separação entre duas vias, fora do trajeto da volta.
+export const CHECKPOINT_GATES = Object.freeze([
+  { x: 3872, y: 3488, w: 560, h: 340, name: "CP1" },
+  { x: 544, y: 1824, w: 340, h: 560, name: "CP2" },
+  { x: 3872, y: 928, w: 560, h: 340, name: "CP3" },
+  { x: 5152, y: 2208, w: 340, h: 560, name: "CP4" },
+]);
+
+// Detecta se a trajetória ENTRE quadros atravessou um portão, mesmo que
+// não tenha havido um frame exatamente dentro dele (lag/boost).
+function segmentIntersectsRect(x0, y0, x1, y1, minX, minY, maxX, maxY) {
+  let enter = 0;
+  let exit = 1;
+  for (const [start, delta, low, high] of [
+    [x0, x1 - x0, minX, maxX],
+    [y0, y1 - y0, minY, maxY],
+  ]) {
+    if (Math.abs(delta) < 1e-9) {
+      if (start < low || start > high) return false;
+      continue;
+    }
+    const t0 = (low - start) / delta;
+    const t1 = (high - start) / delta;
+    enter = Math.max(enter, Math.min(t0, t1));
+    exit = Math.min(exit, Math.max(t0, t1));
+    if (enter > exit) return false;
+  }
+  return true;
+}
+
 class Race extends Phaser.Scene {
   constructor() {
     super("Race");
@@ -161,8 +193,9 @@ class Race extends Phaser.Scene {
 
     this.lapArmed = false;
     this.checkpointIndex = 0;
-    this.checkpointCount = 4;
+    this.checkpointCount = CHECKPOINT_GATES.length;
     this.previousCarX = null;
+    this.previousCarY = null;
     this.finishLineX = 80 * map.tileWidth + map.tileWidth / 2;
     this.finishLineYMin = 52 * map.tileHeight - 20;
     this.finishLineYMax = 57 * map.tileHeight + 20;
@@ -189,6 +222,7 @@ class Race extends Phaser.Scene {
     this.car.setAngle(-90);
     this.playerLabel = new PlayerNameplate(this, this.playerNick, this.carSkin, true).setVisible(false);
     this.previousCarX = this.car.x;
+    this.previousCarY = this.car.y;
     this.networkStartX = startX;
     this.networkStartY = networkStartY;
 
@@ -1280,25 +1314,8 @@ class Race extends Phaser.Scene {
     // 4 portões por volta. Eles ficam em trechos bem claros da PISTA REAL
     // (não no minimapa) e atravessam a largura da estrada, então o carro
     // precisa realmente passar pelo portão para registrar.
-    // Ordem: reta inferior -> subida esquerda -> reta superior -> subida direita.
-    const checkpoints = [
-      // O radar acompanha o formato da PISTA: além de atravessar a
-      // largura da estrada, ele tem uma boa profundidade no sentido
-      // da corrida. Assim não é necessário acertar um ponto exato.
-      // CP1 — reta inferior (horizontal).
-      { x: 3872, y: 3608, w: 560, h: 230, name: "CP1" },
-
-      // CP2 — trecho vertical da esquerda.
-      { x: 544, y: 1824, w: 230, h: 560, name: "CP2" },
-
-      // CP3 — reta superior (horizontal).
-      { x: 3872, y: 928, w: 560, h: 230, name: "CP3" },
-
-      // CP4 — trecho vertical da direita. O sensor agora está na
-      // orientação correta da pista, colocando o checkpoint realmente
-      // sobre o trecho vertical do circuito.
-      { x: 4896, y: 2208, w: 230, h: 560, name: "CP4" },
-    ];
+    // Ordem: reta inferior -> subida esquerda -> reta superior -> descida direita.
+    const checkpoints = CHECKPOINT_GATES;
 
     this.checkpoints = [];
     this.checkpointSensors = this.physics.add.staticGroup();
@@ -1345,15 +1362,18 @@ class Race extends Phaser.Scene {
     const gate = this.checkpoints[this.checkpointIndex];
     if (!gate) return;
 
-    // Radar adicional: a área já é grande, mas acrescentamos uma margem
-    // baseada no tamanho do carro para não perder o checkpoint em alta
-    // velocidade ou quando o carro passa ligeiramente pela borda.
+    // A margem considera o tamanho do carro além do radar do checkpoint.
     const padX = Math.max(28, this.car.width * 0.65);
     const padY = Math.max(28, this.car.height * 0.65);
-    const insideX = Math.abs(this.car.x - gate.x) <= gate.width / 2 + padX;
-    const insideY = Math.abs(this.car.y - gate.y) <= gate.height / 2 + padY;
+    const minX = gate.x - gate.width / 2 - padX;
+    const maxX = gate.x + gate.width / 2 + padX;
+    const minY = gate.y - gate.height / 2 - padY;
+    const maxY = gate.y + gate.height / 2 + padY;
+    const previousX = this.previousCarX ?? this.car.x;
+    const previousY = this.previousCarY ?? this.car.y;
 
-    if (insideX && insideY) this.registerCheckpoint(gate);
+    if (segmentIntersectsRect(previousX, previousY, this.car.x, this.car.y,
+      minX, minY, maxX, maxY)) this.registerCheckpoint(gate);
   }
 
   updateCheckpointHud(message = null) {
@@ -1559,6 +1579,7 @@ class Race extends Phaser.Scene {
     const x = this.car.x;
     const y = this.car.y;
     const previousX = this.previousCarX ?? x;
+    const previousY = this.previousCarY ?? y;
 
     // Primeiro obrigamos o jogador a sair da linha de largada.
     // Assim o spawn em cima da linha nunca conta como uma volta.
@@ -1566,13 +1587,16 @@ class Race extends Phaser.Scene {
       this.lapArmed = true;
     }
 
-    const crossedFinish =
-      this.lapArmed &&
-      previousX > this.finishLineX + 4 &&
-      x <= this.finishLineX + 4 &&
-      this.car.body.velocity.x < -20 &&
-      y >= this.finishLineYMin &&
-      y <= this.finishLineYMax;
+    const crossingX = this.finishLineX + 4;
+    // A mudança de posição já indica travessia no sentido correto.
+    // A antiga exigência velocity.x < -20 descartava cruzamentos lentos
+    // e aqueles em que a física alterava a velocidade após uma batida.
+    const movingLeftAcrossLine = previousX > crossingX && x <= crossingX;
+    const crossingY = movingLeftAcrossLine
+      ? previousY + (y - previousY) * (previousX - crossingX) / (previousX - x)
+      : y;
+    const crossedFinish = this.lapArmed && movingLeftAcrossLine &&
+      crossingY >= this.finishLineYMin && crossingY <= this.finishLineYMax;
 
     if (crossedFinish) {
       this.lapArmed = false;
@@ -1612,6 +1636,7 @@ class Race extends Phaser.Scene {
     }
 
     this.previousCarX = x;
+    this.previousCarY = y;
   }
 
   finishRace() {
